@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Environment (secrets — never commit)
+.env
+.env.local
+.env.*.local
+
+# Build output
+backend/dist/
+frontend/dist/
+frontend/build/
+frontend/.next/
+*.tsbuildinfo
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE (optional: remove .vscode/ if you want to share workspace settings)
+.idea/
+
+# Test / coverage
+coverage/
+.nyc_output/
+
+# Keep package-lock.json committed for reproducible installs (remove from ignore if it was here)
