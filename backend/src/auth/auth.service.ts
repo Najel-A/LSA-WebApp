@@ -2,7 +2,7 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { randomUUID } from 'crypto';
 import type { UserRecord } from '../users/user.model';
-import type { AuthTokenResponse } from './auth.types';
+import type { AuthTokenResponse, LoginSignupResponse } from './auth.types';
 
 // In-memory store — replace with DB when ready (e.g. AWS RDS/DynamoDB)
 const usersByEmail = new Map<string, UserRecord>();
@@ -23,7 +23,7 @@ function expiresInSecondsFromString(exp: string): number {
 }
 
 export const authService = {
-  async signup(email: string, password: string): Promise<AuthTokenResponse> {
+  async signup(email: string, password: string): Promise<LoginSignupResponse> {
     const normalized = email.trim().toLowerCase();
     if (usersByEmail.has(normalized)) {
       throw new Error('EMAIL_IN_USE');
@@ -38,10 +38,10 @@ export const authService = {
     };
     usersByEmail.set(normalized, record);
     usersById.set(id, record);
-    return this.issueToken(id, normalized);
+    return { ...this.issueToken(id, normalized), user: { id, email: normalized } };
   },
 
-  async login(email: string, password: string): Promise<AuthTokenResponse> {
+  async login(email: string, password: string): Promise<LoginSignupResponse> {
     const normalized = email.trim().toLowerCase();
     const user = usersByEmail.get(normalized);
     if (!user) {
@@ -51,7 +51,10 @@ export const authService = {
     if (!match) {
       throw new Error('INVALID_CREDENTIALS');
     }
-    return this.issueToken(user.id, user.email);
+    return {
+      ...this.issueToken(user.id, user.email),
+      user: { id: user.id, email: user.email },
+    };
   },
 
   issueToken(userId: string, email: string): AuthTokenResponse {

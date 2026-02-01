@@ -39,3 +39,8 @@ export async function login(req: Request<object, unknown, LoginBody>, res: Respo
     throw e;
   }
 }
+
+/** POST /auth/logout — client clears token; server acknowledges */
+export function logout(_req: Request, res: Response): void {
+  res.json({ ok: true });
+}

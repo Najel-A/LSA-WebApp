@@ -15,3 +15,14 @@ export interface AuthTokenResponse {
   accessToken: string;
   expiresIn: number; // seconds
 }
+
+/** User returned in auth responses */
+export interface AuthUserResponse {
+  id: string;
+  email: string;
+}
+
+/** Login/signup response with user */
+export interface LoginSignupResponse extends AuthTokenResponse {
+  user: AuthUserResponse;
+}
