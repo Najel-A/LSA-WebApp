@@ -1,15 +1,15 @@
-import { authService } from '../auth/auth.service';
+import { User } from './user.model';
 import type { PublicUser } from './user.types';
 
 /** Business logic for user operations. No HTTP here. */
 export const userService = {
-  getMe(userId: string): PublicUser | null {
-    const record = authService.getUserById(userId);
-    if (!record) return null;
+  async getMe(userId: string): Promise<PublicUser | null> {
+    const user = await User.findById(userId);
+    if (!user) return null;
     return {
-      id: record.id,
-      email: record.email,
-      createdAt: record.createdAt.toISOString(),
+      id: user._id.toString(),
+      email: user.email,
+      createdAt: user.createdAt.toISOString(),
     };
   },
 };
