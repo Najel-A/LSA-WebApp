@@ -18,6 +18,7 @@ export function LoginPage() {
     setError(null);
     try {
       const response = await login({ email, password }).unwrap();
+      console.log('Login response:', response);
       dispatch(setCredentials({ user: response.user, accessToken: response.accessToken }));
       navigate('/app');
     } catch (err) {

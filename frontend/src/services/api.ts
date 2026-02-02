@@ -9,8 +9,10 @@ import {
 import type { RootState } from '@/app/store';
 import { clearCredentials } from '@/features/auth/authSlice';
 
+// In dev, use '' so requests hit Vite proxy (→ backend). In prod, use env or backend URL.
 const baseUrl =
-  import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/api/v1';
+  import.meta.env.VITE_API_BASE_URL ??
+  (import.meta.env.DEV ? '' : 'http://localhost:3000');
 
 const baseQuery = fetchBaseQuery({
   baseUrl,
