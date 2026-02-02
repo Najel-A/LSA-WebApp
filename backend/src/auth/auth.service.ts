@@ -1,12 +1,7 @@
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
-import { randomUUID } from 'crypto';
-import type { UserRecord } from '../users/user.model';
+import { User, toUserRecord, type UserRecord } from '../users/user.model';
 import type { AuthTokenResponse, LoginSignupResponse } from './auth.types';
-
-// In-memory store — replace with DB when ready (e.g. AWS RDS/DynamoDB)
-const usersByEmail = new Map<string, UserRecord>();
-const usersById = new Map<string, UserRecord>();
 
 const SALT_ROUNDS = 10;
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '15m'; // short-lived
@@ -25,35 +20,44 @@ function expiresInSecondsFromString(exp: string): number {
 export const authService = {
   async signup(email: string, password: string): Promise<LoginSignupResponse> {
     const normalized = email.trim().toLowerCase();
-    if (usersByEmail.has(normalized)) {
+
+    // Check if email already exists
+    const existing = await User.findOne({ email: normalized });
+    if (existing) {
       throw new Error('EMAIL_IN_USE');
     }
+
     const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
-    const id = randomUUID();
-    const record: UserRecord = {
-      id,
+
+    const user = await User.create({
       email: normalized,
       passwordHash,
-      createdAt: new Date(),
+    });
+
+    const id = user._id.toString();
+    return {
+      ...this.issueToken(id, normalized),
+      user: { id, email: normalized },
     };
-    usersByEmail.set(normalized, record);
-    usersById.set(id, record);
-    return { ...this.issueToken(id, normalized), user: { id, email: normalized } };
   },
 
   async login(email: string, password: string): Promise<LoginSignupResponse> {
     const normalized = email.trim().toLowerCase();
-    const user = usersByEmail.get(normalized);
+
+    const user = await User.findOne({ email: normalized });
     if (!user) {
       throw new Error('INVALID_CREDENTIALS');
     }
+
     const match = await bcrypt.compare(password, user.passwordHash);
     if (!match) {
       throw new Error('INVALID_CREDENTIALS');
     }
+
+    const id = user._id.toString();
     return {
-      ...this.issueToken(user.id, user.email),
-      user: { id: user.id, email: user.email },
+      ...this.issueToken(id, user.email),
+      user: { id, email: user.email },
     };
   },
 
@@ -79,7 +83,9 @@ export const authService = {
   },
 
   /** Look up user by id (for GET /users/me). Returns null if not found. */
-  getUserById(id: string): UserRecord | null {
-    return usersById.get(id) ?? null;
+  async getUserById(id: string): Promise<UserRecord | null> {
+    const user = await User.findById(id);
+    if (!user) return null;
+    return toUserRecord(user);
   },
 };
