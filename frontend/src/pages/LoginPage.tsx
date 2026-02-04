@@ -3,6 +3,9 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useLoginMutation } from '@/features/auth/authApi';
 import { setCredentials } from '@/features/auth/authSlice';
 import { useAppDispatch } from '@/app/hooks';
+import { Card } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
 
 export function LoginPage() {
   const [email, setEmail] = useState('');
@@ -18,7 +21,6 @@ export function LoginPage() {
     setError(null);
     try {
       const response = await login({ email, password }).unwrap();
-      console.log('Login response:', response);
       dispatch(setCredentials({ user: response.user, accessToken: response.accessToken }));
       navigate('/app');
     } catch (err) {
@@ -30,33 +32,44 @@ export function LoginPage() {
   }
 
   return (
-    <div>
-      <h1>Login</h1>
-      <form onSubmit={handleSubmit}>
+    <div className="flex flex-col items-center justify-center py-12 sm:py-16">
+      <Card className="max-w-md w-full space-y-6">
         <div>
-          <label htmlFor="email">Email</label>
-          <input
-            id="email"
+          <h1>Login</h1>
+          <p className="mt-1 text-sm text-neutral-600">Sign in to your account</p>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <Input
+            label="Email"
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            placeholder="you@example.com"
             required
           />
-        </div>
-        <div>
-          <label htmlFor="password">Password</label>
-          <input
-            id="password"
+          <Input
+            label="Password"
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
           />
-        </div>
-        {error && <p role="alert">{error}</p>}
-        <button type="submit">Log in</button>
-      </form>
-      <Link to="/">Back</Link> | <Link to="/signup">Sign up</Link>
+          {error && (
+            <p role="alert" className="text-sm text-red-600">
+              {error}
+            </p>
+          )}
+          <Button type="submit" className="w-full">
+            Log in
+          </Button>
+        </form>
+        <p className="text-center text-sm text-neutral-600">
+          Don&apos;t have an account?{' '}
+          <Link to="/signup" className="font-medium text-primary-600 hover:text-primary-700">
+            Sign up
+          </Link>
+        </p>
+      </Card>
     </div>
   );
 }

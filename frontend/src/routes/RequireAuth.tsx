@@ -10,7 +10,11 @@ export function RequireAuth({ children }: RequireAuthProps) {
   const location = useLocation();
 
   if (!isBootstrapped) {
-    return <p>Loading…</p>;
+    return (
+      <div className="flex items-center justify-center py-12">
+        <p className="text-neutral-600">Loading…</p>
+      </div>
+    );
   }
 
   if (!user) {
