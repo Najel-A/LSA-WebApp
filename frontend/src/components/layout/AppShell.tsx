@@ -11,6 +11,7 @@ export function AppShell({ children }: AppShellProps) {
   const user = useAppSelector((state) => state.auth.user);
   const [logout] = useLogoutMutation();
 
+  // Work on project name and logo
   return (
     <div className="min-h-screen flex flex-col">
       <header className="border-b border-neutral-200 bg-white">
@@ -20,8 +21,8 @@ export function AppShell({ children }: AppShellProps) {
               to="/"
               className="text-lg font-semibold text-neutral-900 hover:text-primary-600 transition-colors"
             >
-              LSA Web App
-            </Link>
+              NexusTrace
+            </Link> 
             <nav className="flex items-center gap-3 sm:gap-4">
               {user ? (
                 <>

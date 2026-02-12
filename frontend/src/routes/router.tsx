@@ -1,7 +1,7 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { Layout } from '@/components/layout/Layout';
 import { RequireAuth } from './RequireAuth';
-import { WelcomePage } from '@/pages/WelcomePage';
+import { HomePage } from '@/pages/HomePage';
 import { LoginPage } from '@/pages/LoginPage';
 import { SignupPage } from '@/pages/SignupPage';
 import { DashboardPage } from '@/pages/DashboardPage';
@@ -12,7 +12,7 @@ export const router = createBrowserRouter([
     children: [
       {
         path: '/',
-        element: <WelcomePage />,
+        element: <HomePage />,
       },
       {
         path: '/login',
