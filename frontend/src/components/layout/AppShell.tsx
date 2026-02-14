@@ -27,7 +27,7 @@ export function AppShell({ children }: AppShellProps) {
               {user ? (
                 <>
                   <Link
-                    to="/app"
+                    to="/dashboard"
                     className="text-sm font-medium text-neutral-600 hover:text-neutral-900 transition-colors"
                   >
                     Dashboard
