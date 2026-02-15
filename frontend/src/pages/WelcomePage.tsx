@@ -21,7 +21,7 @@ export function WelcomePage() {
           <Link to="/signup">
             <Button className="w-full sm:w-auto">Sign up</Button>
           </Link>
-          <Link to="/app">
+          <Link to="/dashboard">
             <Button variant="secondary" className="w-full sm:w-auto">
               App
             </Button>

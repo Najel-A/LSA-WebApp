@@ -1,5 +1,5 @@
 import { useState, FormEvent } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useLoginMutation } from '@/features/auth/authApi';
 import { setCredentials } from '@/features/auth/authSlice';
 import { useAppDispatch } from '@/app/hooks';
@@ -14,7 +14,9 @@ export function LoginPage() {
 
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
+  const location = useLocation();
   const [login] = useLoginMutation();
+  const from = (location.state as { from?: { pathname: string } })?.from?.pathname;
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -22,7 +24,7 @@ export function LoginPage() {
     try {
       const response = await login({ email, password }).unwrap();
       dispatch(setCredentials({ user: response.user, accessToken: response.accessToken }));
-      navigate('/app');
+      navigate(from && from !== '/login' ? from : '/dashboard', { replace: true });
     } catch (err) {
       const message = err && typeof err === 'object' && 'data' in err
         ? (err.data as { error?: string })?.error ?? 'Login failed'

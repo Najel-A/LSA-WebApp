@@ -5,6 +5,8 @@ import { HomePage } from '@/pages/HomePage';
 import { LoginPage } from '@/pages/LoginPage';
 import { SignupPage } from '@/pages/SignupPage';
 import { DashboardPage } from '@/pages/DashboardPage';
+import { AlertDashboardPage } from '@/pages/AlertDashboardPage';
+import { AlertDetailPage } from '@/pages/AlertDetailPage';
 
 export const router = createBrowserRouter([
   {
@@ -27,6 +29,22 @@ export const router = createBrowserRouter([
         element: (
           <RequireAuth>
             <DashboardPage />
+          </RequireAuth>
+        ),
+      },
+      {
+        path: '/dashboard',
+        element: (
+          <RequireAuth>
+            <AlertDashboardPage />
+          </RequireAuth>
+        ),
+      },
+      {
+        path: '/alerts/:id',
+        element: (
+          <RequireAuth>
+            <AlertDetailPage />
           </RequireAuth>
         ),
       },
