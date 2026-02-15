@@ -1,9 +1,11 @@
 import { createSlice } from '@reduxjs/toolkit';
 
+export type UserRole = 'user' | 'admin';
+
 export interface AuthUser {
   id: string;
   email: string;
-  role?: string;
+  role: UserRole;
 }
 
 interface AuthState {
@@ -33,6 +35,9 @@ const authSlice = createSlice({
       state.user = action.payload;
       // does not overwrite accessToken
     },
+    setRole: (state, action: { payload: UserRole }) => {
+      if (state.user) state.user.role = action.payload;
+    },
     clearCredentials: (state) => {
       state.user = null;
       state.accessToken = null;
@@ -43,6 +48,6 @@ const authSlice = createSlice({
   },
 });
 
-export const { setCredentials, setUser, clearCredentials, setBootstrapped } =
+export const { setCredentials, setUser, setRole, clearCredentials, setBootstrapped } =
   authSlice.actions;
 export default authSlice.reducer;

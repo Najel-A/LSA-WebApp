@@ -23,7 +23,14 @@ export function LoginPage() {
     setError(null);
     try {
       const response = await login({ email, password }).unwrap();
-      dispatch(setCredentials({ user: response.user, accessToken: response.accessToken }));
+      dispatch(setCredentials({
+        user: {
+          id: response.user.id,
+          email: response.user.email,
+          role: (response.user as { role?: string }).role === 'admin' ? 'admin' : 'user',
+        },
+        accessToken: response.accessToken,
+      }));
       navigate(from && from !== '/login' ? from : '/dashboard', { replace: true });
     } catch (err) {
       const message = err && typeof err === 'object' && 'data' in err

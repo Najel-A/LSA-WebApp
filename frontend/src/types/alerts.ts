@@ -24,3 +24,12 @@ export interface AlertEvent {
 }
 
 export type TimeRangeKey = '1h' | '24h' | '7d';
+
+export type AlertFeedbackVerdict = 'valid' | 'false_positive';
+
+export interface AlertFeedback {
+  verdict: AlertFeedbackVerdict | null;
+  rootCause: string;
+  note: string;
+  updatedAt: string; // ISO
+}
