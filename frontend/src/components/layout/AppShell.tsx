@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { useAppSelector } from '@/app/hooks';
 import { useLogoutMutation } from '@/features/auth/authApi';
 import { Button } from '@/components/ui/Button';
+import { DevRoleToggle } from '@/components/dev/DevRoleToggle';
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -26,11 +27,24 @@ export function AppShell({ children }: AppShellProps) {
             <nav className="flex items-center gap-3 sm:gap-4">
               {user ? (
                 <>
+                  <DevRoleToggle />
                   <Link
                     to="/dashboard"
                     className="text-sm font-medium text-neutral-600 hover:text-neutral-900 transition-colors"
                   >
                     Dashboard
+                  </Link>
+                  <Link
+                    to="/tools/analyze"
+                    className="text-sm font-medium text-neutral-600 hover:text-neutral-900 transition-colors"
+                  >
+                    Analyze
+                  </Link>
+                  <Link
+                    to="/admin"
+                    className="text-sm font-medium text-neutral-600 hover:text-neutral-900 transition-colors"
+                  >
+                    Admin
                   </Link>
                   <Button
                     variant="secondary"

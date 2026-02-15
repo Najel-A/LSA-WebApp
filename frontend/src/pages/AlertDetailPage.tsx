@@ -5,6 +5,7 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { StatusPill } from '@/components/dashboard/StatusPill';
 import { WatchToggle } from '@/components/dashboard/WatchToggle';
+import { AlertFeedbackForm } from '@/components/dashboard/AlertFeedbackForm';
 
 function formatLastSeen(iso: string): string {
   return new Date(iso).toLocaleString(undefined, {
@@ -69,6 +70,9 @@ export function AlertDetailPage() {
           <WatchToggle alertId={alert.id} />
         </div>
       </div>
+
+      {/* Feedback - stored in localStorage, shown for all users */}
+      <AlertFeedbackForm alertId={alert.id} />
 
       {/* Panels */}
       <div className="grid gap-6 sm:grid-cols-1 lg:grid-cols-2">

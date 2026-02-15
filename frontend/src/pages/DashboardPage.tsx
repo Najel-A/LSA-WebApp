@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useAppDispatch, useAppSelector } from '@/app/hooks';
 import { useMeQuery } from '@/features/auth/authApi';
-import { setUser } from '@/features/auth/authSlice';
+import { setUser, type UserRole } from '@/features/auth/authSlice';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 
@@ -17,7 +17,7 @@ export function DashboardPage() {
         setUser({
           id: data.id,
           email: data.email,
-          role: data.role,
+          role: (data.role === 'admin' ? 'admin' : 'user') as UserRole,
         })
       );
     }

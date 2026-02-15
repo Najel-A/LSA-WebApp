@@ -1,12 +1,18 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { Layout } from '@/components/layout/Layout';
 import { RequireAuth } from './RequireAuth';
+import { ProtectedRoute } from './ProtectedRoute';
+import { AdminRoute } from './AdminRoute';
 import { HomePage } from '@/pages/HomePage';
 import { LoginPage } from '@/pages/LoginPage';
 import { SignupPage } from '@/pages/SignupPage';
 import { DashboardPage } from '@/pages/DashboardPage';
 import { AlertDashboardPage } from '@/pages/AlertDashboardPage';
 import { AlertDetailPage } from '@/pages/AlertDetailPage';
+import { AccessDeniedPage } from '@/pages/AccessDeniedPage';
+import { AdminPage } from '@/pages/AdminPage';
+import { AdminModelPage } from '@/pages/AdminModelPage';
+import { AnalyzePage } from '@/pages/AnalyzePage';
 
 export const router = createBrowserRouter([
   {
@@ -35,9 +41,9 @@ export const router = createBrowserRouter([
       {
         path: '/dashboard',
         element: (
-          <RequireAuth>
+          <ProtectedRoute>
             <AlertDashboardPage />
-          </RequireAuth>
+          </ProtectedRoute>
         ),
       },
       {
@@ -46,6 +52,34 @@ export const router = createBrowserRouter([
           <RequireAuth>
             <AlertDetailPage />
           </RequireAuth>
+        ),
+      },
+      {
+        path: '/access-denied',
+        element: <AccessDeniedPage />,
+      },
+      {
+        path: '/admin',
+        element: (
+          <AdminRoute>
+            <AdminPage />
+          </AdminRoute>
+        ),
+      },
+      {
+        path: '/admin/model',
+        element: (
+          <AdminRoute>
+            <AdminModelPage />
+          </AdminRoute>
+        ),
+      },
+      {
+        path: '/tools/analyze',
+        element: (
+          <ProtectedRoute>
+            <AnalyzePage />
+          </ProtectedRoute>
         ),
       },
       {

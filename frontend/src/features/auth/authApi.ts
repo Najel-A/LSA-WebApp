@@ -1,6 +1,10 @@
 import { api } from '@/services/api';
 import type { RootState } from '@/app/store';
-import type { AuthUser } from './authSlice';
+import type { AuthUser, UserRole } from './authSlice';
+
+function toUserRole(value: unknown): UserRole {
+  return value === 'admin' ? 'admin' : 'user';
+}
 import { setCredentials, clearCredentials } from './authSlice';
 
 /** Login response from POST /auth/login */
@@ -40,7 +44,11 @@ export const authApi = api.injectEndpoints({
       async onQueryStarted(_arg, { dispatch, queryFulfilled }) {
         try {
           const { data } = await queryFulfilled;
-          const user: AuthUser = { id: data.user.id, email: data.user.email };
+          const user: AuthUser = {
+            id: data.user.id,
+            email: data.user.email,
+            role: toUserRole((data.user as { role?: unknown }).role),
+          };
           dispatch(setCredentials({ user, accessToken: data.accessToken }));
         } catch {
           // Error handled by mutation
@@ -58,7 +66,12 @@ export const authApi = api.injectEndpoints({
         try {
           const { data } = await queryFulfilled;
           if (data.accessToken && data.user) {
-            const user: AuthUser = { id: data.user.id, email: data.user.email };
+            const u = data.user as { id: string; email: string; role?: unknown };
+            const user: AuthUser = {
+              id: u.id,
+              email: u.email,
+              role: toUserRole(u.role),
+            };
             dispatch(setCredentials({ user, accessToken: data.accessToken }));
           }
         } catch {
@@ -78,7 +91,7 @@ export const authApi = api.injectEndpoints({
             const user: AuthUser = {
               id: data.id,
               email: data.email,
-              role: data.role,
+              role: toUserRole(data.role),
             };
             dispatch(setCredentials({ user, accessToken: token }));
           }
