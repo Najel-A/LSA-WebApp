@@ -1,3 +1,5 @@
+import type { ValidationState } from './alerts';
+
 export interface AnomalyItem {
   id: string;
   message: string;
@@ -26,4 +28,20 @@ export interface AnalysisResult {
   anomalies: AnomalyItem[];
   rcaGuesses: RcaGuess[];
   recommendedFixes: RecommendedFix[];
+  /** Aligns with alert detail RCA workspace */
+  predictedRootCause: {
+    summary: string;
+    category: string;
+    confidence: number;
+  };
+  primaryRecommendedFix: {
+    steps: string[];
+    command?: string;
+  };
+  validationStatus: ValidationState;
+  confidenceBand: 'low' | 'medium' | 'high';
+  evidenceSnippets: { id: string; text: string; source?: string }[];
+  reasoningBullets: string[];
+  modelsUsed: string[];
+  systemValidated: boolean;
 }

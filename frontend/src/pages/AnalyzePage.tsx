@@ -1,9 +1,11 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { runMockAnalysis } from '@/mock/analyze';
 import type { AnalysisResult } from '@/types/analyze';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { RcaTripletCards } from '@/components/dashboard/RcaTripletCards';
+import { ExplainabilityPanel } from '@/components/dashboard/ExplainabilityPanel';
 
 const severityStyles = {
   low: 'bg-neutral-100 text-neutral-700',
@@ -16,10 +18,27 @@ function confidenceLabel(p: number): string {
   return `${Math.round(p * 100)}%`;
 }
 
+function toTriplet(r: AnalysisResult) {
+  return {
+    rootCause: {
+      summary: r.predictedRootCause.summary,
+      category: r.predictedRootCause.category,
+      confidence: r.predictedRootCause.confidence,
+    },
+    recommendedFix: r.primaryRecommendedFix,
+    validation: {
+      confidenceLevel: r.confidenceBand,
+      status: r.validationStatus,
+    },
+  };
+}
+
 export function AnalyzePage() {
   const [logInput, setLogInput] = useState('');
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
+
+  const triplet = useMemo(() => (result ? toTriplet(result) : null), [result]);
 
   const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -51,11 +70,11 @@ export function AnalyzePage() {
             to="/dashboard"
             className="text-sm font-medium text-primary-600 hover:text-primary-700 hover:underline"
           >
-            ← Dashboard
+            ← Incidents
           </Link>
-          <h1 className="text-2xl font-bold text-neutral-900 mt-1">Log analyzer</h1>
-          <p className="text-sm text-neutral-500 mt-1">
-            Upload or paste logs to run a mock analysis (no data sent to the server).
+          <h1 className="text-2xl font-bold text-neutral-900 mt-1">RCA sandbox</h1>
+          <p className="text-sm text-neutral-500 mt-1 max-w-xl">
+            One-off log analysis — same RCA layout as incident detail.
           </p>
         </div>
       </div>
@@ -84,7 +103,7 @@ export function AnalyzePage() {
           <textarea
             value={logInput}
             onChange={(e) => setLogInput(e.target.value)}
-            placeholder="Or paste logs here..."
+            placeholder="Paste logs here…"
             rows={12}
             className="block w-full rounded-md border border-neutral-300 px-3 py-2 font-mono text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
           />
@@ -94,86 +113,87 @@ export function AnalyzePage() {
         </div>
       </Card>
 
-      {result && (
+      {result && triplet && (
         <div className="space-y-6">
           <div className="flex flex-wrap items-center gap-4 text-sm">
             <span className="font-medium text-neutral-700">
-              Model version: <code className="rounded bg-neutral-100 px-1.5 py-0.5">{result.modelVersion}</code>
+              Model: <code className="rounded bg-neutral-100 px-1.5 py-0.5">{result.modelVersion}</code>
             </span>
             <span className="text-neutral-600">
-              Overall confidence: <strong>{confidenceLabel(result.overallConfidence)}</strong>
+              Sample confidence: <strong>{confidenceLabel(result.overallConfidence)}</strong>
             </span>
+          </div>
+
+          <RcaTripletCards data={triplet} />
+
+          <ExplainabilityPanel
+            evidenceSnippets={result.evidenceSnippets}
+            reasoningBullets={result.reasoningBullets}
+            modelsUsed={result.modelsUsed}
+            systemValidated={result.systemValidated}
+          />
+
+          <div className="grid gap-6 sm:grid-cols-1 lg:grid-cols-2">
+            <Card>
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-neutral-500 mb-3">
+                Anomalies
+              </h2>
+              {result.anomalies.length === 0 ? (
+                <p className="text-sm text-neutral-500">None detected.</p>
+              ) : (
+                <ul className="space-y-3">
+                  {result.anomalies.map((a) => (
+                    <li key={a.id} className="flex flex-col gap-1 border-b border-neutral-100 pb-3 last:border-0 last:pb-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${severityStyles[a.severity]}`}>
+                          {a.severity}
+                        </span>
+                        <span className="text-xs text-neutral-500">Confidence: {confidenceLabel(a.confidence)}</span>
+                      </div>
+                      <p className="text-sm text-neutral-900">{a.message}</p>
+                      {a.lineRef && (
+                        <p className="text-xs font-mono text-neutral-500 truncate" title={a.lineRef}>
+                          {a.lineRef}
+                        </p>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Card>
+
+            <Card>
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-neutral-500 mb-3">
+                Alternate hypotheses
+              </h2>
+              {result.rcaGuesses.length === 0 ? (
+                <p className="text-sm text-neutral-500">None.</p>
+              ) : (
+                <ul className="space-y-3">
+                  {result.rcaGuesses.map((r) => (
+                    <li key={r.id} className="border-b border-neutral-100 pb-3 last:border-0 last:pb-0">
+                      <p className="text-sm text-neutral-900">{r.description}</p>
+                      <p className="text-xs text-neutral-500 mt-1">Confidence: {confidenceLabel(r.confidence)}</p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Card>
           </div>
 
           <Card>
             <h2 className="text-sm font-semibold uppercase tracking-wider text-neutral-500 mb-3">
-              Anomalies
+              More recommended actions
             </h2>
-            {result.anomalies.length === 0 ? (
-              <p className="text-sm text-neutral-500">None detected.</p>
-            ) : (
-              <ul className="space-y-3">
-                {result.anomalies.map((a) => (
-                  <li key={a.id} className="flex flex-col gap-1 border-b border-neutral-100 pb-3 last:border-0 last:pb-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${severityStyles[a.severity]}`}>
-                        {a.severity}
-                      </span>
-                      <span className="text-xs text-neutral-500">
-                        Confidence: {confidenceLabel(a.confidence)}
-                      </span>
-                    </div>
-                    <p className="text-sm text-neutral-900">{a.message}</p>
-                    {a.lineRef && (
-                      <p className="text-xs font-mono text-neutral-500 truncate" title={a.lineRef}>
-                        {a.lineRef}
-                      </p>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Card>
-
-          <Card>
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-neutral-500 mb-3">
-              RCA guesses
-            </h2>
-            {result.rcaGuesses.length === 0 ? (
-              <p className="text-sm text-neutral-500">None.</p>
-            ) : (
-              <ul className="space-y-3">
-                {result.rcaGuesses.map((r) => (
-                  <li key={r.id} className="border-b border-neutral-100 pb-3 last:border-0 last:pb-0">
-                    <p className="text-sm text-neutral-900">{r.description}</p>
-                    <p className="text-xs text-neutral-500 mt-1">
-                      Confidence: {confidenceLabel(r.confidence)}
-                    </p>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Card>
-
-          <Card>
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-neutral-500 mb-3">
-              Recommended fixes
-            </h2>
-            {result.recommendedFixes.length === 0 ? (
-              <p className="text-sm text-neutral-500">None.</p>
-            ) : (
-              <ul className="space-y-3">
-                {result.recommendedFixes.map((f) => (
-                  <li key={f.id} className="border-b border-neutral-100 pb-3 last:border-0 last:pb-0">
-                    <p className="font-medium text-neutral-900">{f.title}</p>
-                    <p className="text-sm text-neutral-600 mt-0.5">{f.description}</p>
-                    <p className="text-xs text-neutral-500 mt-1">
-                      Confidence: {confidenceLabel(f.confidence)}
-                    </p>
-                  </li>
-                ))}
-              </ul>
-            )}
+            <ul className="space-y-3">
+              {result.recommendedFixes.map((f) => (
+                <li key={f.id} className="border-b border-neutral-100 pb-3 last:border-0 last:pb-0">
+                  <p className="font-medium text-neutral-900">{f.title}</p>
+                  <p className="text-sm text-neutral-600 mt-0.5">{f.description}</p>
+                  <p className="text-xs text-neutral-500 mt-1">Confidence: {confidenceLabel(f.confidence)}</p>
+                </li>
+              ))}
+            </ul>
           </Card>
         </div>
       )}

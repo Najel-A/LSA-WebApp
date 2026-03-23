@@ -13,6 +13,8 @@ export const mockAlerts: AlertItem[] = [
     trend: [2, 5, 12, 8, 20, 35, 40, 20],
     ips: 12,
     people: 8,
+    rcaStatus: 'validated',
+    rcaConfidence: 'high',
   },
   {
     id: 'alert-2',
@@ -26,6 +28,8 @@ export const mockAlerts: AlertItem[] = [
     trend: [0, 1, 3, 10, 25, 30, 15, 5],
     ips: 5,
     people: 4,
+    rcaStatus: 'analyzing',
+    rcaConfidence: 'medium',
   },
   {
     id: 'alert-3',
@@ -39,6 +43,8 @@ export const mockAlerts: AlertItem[] = [
     trend: [100, 120, 110, 90, 80, 70, 60, 50],
     ips: 3,
     people: 2,
+    rcaStatus: 'validated',
+    rcaConfidence: 'high',
   },
   {
     id: 'alert-4',
@@ -52,6 +58,8 @@ export const mockAlerts: AlertItem[] = [
     trend: [0, 0, 2, 5, 8, 10, 6, 3],
     ips: 2,
     people: 2,
+    rcaStatus: 'needs_review',
+    rcaConfidence: 'medium',
   },
   {
     id: 'alert-5',
@@ -65,6 +73,8 @@ export const mockAlerts: AlertItem[] = [
     trend: [5, 8, 6, 4, 3, 2, 2, 1],
     ips: 4,
     people: 3,
+    rcaStatus: 'pending',
+    rcaConfidence: 'low',
   },
 ];
 

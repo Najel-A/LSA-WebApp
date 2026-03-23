@@ -75,12 +75,16 @@ export const router = createBrowserRouter([
         ),
       },
       {
-        path: '/tools/analyze',
+        path: '/analyze',
         element: (
           <ProtectedRoute>
             <AnalyzePage />
           </ProtectedRoute>
         ),
+      },
+      {
+        path: '/tools/analyze',
+        element: <Navigate to="/analyze" replace />,
       },
       {
         path: '*',

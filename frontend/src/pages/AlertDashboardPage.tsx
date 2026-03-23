@@ -62,19 +62,52 @@ export function AlertDashboardPage() {
     return list;
   }, [filters, searchQuery]);
 
+  const hasActiveFilters =
+    filters.projects.length > 0 ||
+    filters.environments.length > 0 ||
+    filters.severity.length > 0 ||
+    filters.status.length > 0 ||
+    filters.timeRange !== DEFAULT_FILTERS.timeRange ||
+    searchQuery.trim().length > 0;
+
+  const summary = useMemo(() => {
+    const openIncidents = filteredAlerts.filter((a) => a.status === 'active').length;
+    const validated = filteredAlerts.filter((a) => a.rcaStatus === 'validated').length;
+    const needsReview = filteredAlerts.filter((a) => a.rcaStatus === 'needs_review').length;
+    const muted = filteredAlerts.filter((a) => a.status === 'muted').length;
+    return { openIncidents, validated, needsReview, muted };
+  }, [filteredAlerts]);
+
+  const clearAll = () => {
+    setFilters(DEFAULT_FILTERS);
+    setSearchQuery('');
+  };
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-2xl font-bold text-neutral-900">Alerts</h1>
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-          <div className="relative flex-1 sm:min-w-[200px] sm:max-w-sm">
+        <div>
+          <h1 className="text-2xl font-bold text-neutral-900">Incidents</h1>
+          <p className="text-sm text-neutral-500 mt-0.5">Monitor open issues — open a row for RCA workspace.</p>
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-2">
+          <div className="relative flex-1 sm:min-w-[280px] sm:max-w-md">
             <Input
-              placeholder="Search alerts"
+              placeholder="Search incidents, services, or root causes"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pr-3"
             />
           </div>
+          {hasActiveFilters && (
+            <button
+              type="button"
+              onClick={clearAll}
+              className="text-xs font-medium text-neutral-500 hover:text-neutral-700 hover:underline px-1 py-1"
+            >
+              Clear filters
+            </button>
+          )}
           <Button
             variant="secondary"
             onClick={() => setFiltersDrawerOpen(true)}
@@ -85,10 +118,41 @@ export function AlertDashboardPage() {
         </div>
       </div>
 
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className="rounded-md border border-neutral-200 bg-white px-3 py-2">
+          <p className="text-[11px] uppercase tracking-wider font-semibold text-neutral-500">Open</p>
+          <p className="text-lg font-semibold text-neutral-900">{summary.openIncidents}</p>
+        </div>
+        <div className="rounded-md border border-neutral-200 bg-white px-3 py-2">
+          <p className="text-[11px] uppercase tracking-wider font-semibold text-neutral-500">Validated RCA</p>
+          <p className="text-lg font-semibold text-neutral-900">{summary.validated}</p>
+        </div>
+        <div className="rounded-md border border-neutral-200 bg-white px-3 py-2">
+          <p className="text-[11px] uppercase tracking-wider font-semibold text-neutral-500">Needs review</p>
+          <p className="text-lg font-semibold text-neutral-900">{summary.needsReview}</p>
+        </div>
+        <div className="rounded-md border border-neutral-200 bg-white px-3 py-2">
+          <p className="text-[11px] uppercase tracking-wider font-semibold text-neutral-500">Muted</p>
+          <p className="text-lg font-semibold text-neutral-900">{summary.muted}</p>
+        </div>
+      </div>
+
       <div className="flex flex-col lg:flex-row gap-6">
         {/* Sidebar: visible on lg, replaced by drawer on smaller */}
         <aside className="hidden lg:block w-56 shrink-0">
-          <div className="rounded-lg border border-neutral-200 bg-white p-4">
+          <div className="rounded-lg border border-neutral-200 bg-white p-4 shadow-sm">
+            <div className="mb-3 flex items-center justify-between">
+              <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Filters</p>
+              {hasActiveFilters && (
+                <button
+                  type="button"
+                  onClick={clearAll}
+                  className="text-[11px] font-medium text-neutral-500 hover:text-neutral-700 hover:underline"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
             <FilterSidebar
               filters={filters}
               onFiltersChange={setFilters}
@@ -101,11 +165,11 @@ export function AlertDashboardPage() {
         <main className="min-w-0 flex-1">
           {filteredAlerts.length === 0 ? (
             <div className="rounded-lg border border-neutral-200 bg-white p-12 text-center">
-              <p className="text-neutral-600">No alerts match these filters.</p>
+              <p className="text-neutral-600">No incidents match these filters.</p>
               <Button
                 variant="secondary"
                 className="mt-4"
-                onClick={() => setFilters(DEFAULT_FILTERS)}
+                onClick={clearAll}
               >
                 Clear filters
               </Button>
