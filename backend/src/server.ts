@@ -28,8 +28,6 @@ async function shutdown(signal: string) {
   }
 
   // await disconnectDB(); // TODO: add this back in when we have a DB
- 
-
   process.exit(0);
 }
 

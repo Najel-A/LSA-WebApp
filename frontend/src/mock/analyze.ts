@@ -1,4 +1,5 @@
 import type { AnalysisResult } from '@/types/analyze';
+import type { ValidationState } from '@/types/alerts';
 
 /** Mock analysis: parses log text and returns a fixed structure. No backend. */
 export function runMockAnalysis(logText: string): AnalysisResult {
@@ -91,11 +92,62 @@ export function runMockAnalysis(logText: string): AnalysisResult {
       ? anomalies.reduce((s, a) => s + a.confidence, 0) / anomalies.length
       : 0.5;
 
+  const confidenceBand: AnalysisResult['confidenceBand'] =
+    overallConfidence >= 0.8 ? 'high' : overallConfidence >= 0.6 ? 'medium' : 'low';
+
+  const validationStatus: ValidationState = hasError
+    ? 'needs_review'
+    : overallConfidence >= 0.75
+      ? 'validated_by_system'
+      : 'pending_validation';
+
+  const predictedRootCause = {
+    summary: hasError
+      ? 'Application or runtime error pattern detected in the log sample.'
+      : 'No strong error signature; possible configuration or environment drift.',
+    category: hasError ? 'Application error' : 'Operational',
+    confidence: hasError ? 0.82 : 0.55,
+  };
+
+  const primaryRecommendedFix = {
+    steps: [
+      'Correlate timestamps with the last deployment or config change.',
+      'Open the first stack frame in your repo and add defensive checks or logging.',
+    ],
+    command: hasError ? 'grep -n "Error\\|Exception" your.log | head -20' : undefined,
+  };
+
+  const evidenceSnippets = [
+    {
+      id: 'ev-1',
+      text: lines[0]?.slice(0, 120) || '(empty first line)',
+      source: 'log',
+    },
+    ...(lines[1]
+      ? [{ id: 'ev-2', text: lines[1].slice(0, 120), source: 'log' as const }]
+      : []),
+  ];
+
+  const reasoningBullets = [
+    hasError
+      ? 'Error-level tokens and stack-like lines increase likelihood of a code defect.'
+      : 'Sample lacks decisive infra or dependency failure markers.',
+    lines.length > 100 ? 'Large sample size improves statistical confidence.' : 'Small sample; treat as directional only.',
+  ];
+
   return {
     modelVersion: 'v2.1.0',
     overallConfidence: Math.round(overallConfidence * 100) / 100,
     anomalies: anomalies as AnalysisResult['anomalies'],
     rcaGuesses: rcaGuesses as AnalysisResult['rcaGuesses'],
     recommendedFixes: recommendedFixes as AnalysisResult['recommendedFixes'],
+    predictedRootCause,
+    primaryRecommendedFix,
+    validationStatus,
+    confidenceBand,
+    evidenceSnippets,
+    reasoningBullets,
+    modelsUsed: ['NexusTrace-RCA v2.1', 'log-signal-classifier'],
+    systemValidated: validationStatus === 'validated_by_system',
   };
 }
