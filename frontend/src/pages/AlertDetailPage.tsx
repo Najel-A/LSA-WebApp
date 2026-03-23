@@ -1,14 +1,25 @@
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { mockAlerts } from '@/mock/alerts';
-import { mockAlertEvents } from '@/mock/alerts';
+import { mockAlerts, mockAlertEvents } from '@/mock/alerts';
 import { getAlertRcaDetail } from '@/mock/alertRca';
+import { buildMockIncidentEvidence } from '@/mock/incidentEvidence';
+import {
+  DEFAULT_K8S_SYSTEM_PROMPT,
+  buildEvidencePrompt,
+  formatNexusAnalyzeError,
+  isNexusAbortError,
+  postNexusAnalyze,
+  resolveNexusAnalyzeTimeoutMs,
+} from '@/services/nexusAnalyzeApi';
+import { parseRcaResponse } from '@/lib/parseRcaResponse';
+import type { ParsedRcaSections } from '@/types/incidentAnalysis';
+import type { ValidationState } from '@/types/alerts';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { StatusPill } from '@/components/dashboard/StatusPill';
 import { WatchToggle } from '@/components/dashboard/WatchToggle';
 import { AlertFeedbackForm } from '@/components/dashboard/AlertFeedbackForm';
-import { RcaTripletCards } from '@/components/dashboard/RcaTripletCards';
-import { ExplainabilityPanel } from '@/components/dashboard/ExplainabilityPanel';
+import { RcaWorkspaceSections } from '@/components/dashboard/RcaWorkspaceSections';
 import type { AlertSeverity } from '@/types/alerts';
 
 function formatLastSeen(iso: string): string {
@@ -34,13 +45,125 @@ const severityBadge: Record<AlertSeverity, string> = {
   debug: 'bg-neutral-50 text-neutral-500',
 };
 
+const rcaStatusStyles = {
+  pending: 'bg-neutral-100 text-neutral-600',
+  analyzing: 'bg-primary-100 text-primary-800',
+  validated: 'bg-emerald-100 text-emerald-800',
+  needs_review: 'bg-amber-100 text-amber-800',
+} as const;
+
+const rcaStatusLabel = {
+  pending: 'Pending',
+  analyzing: 'Analyzing',
+  validated: 'Validated',
+  needs_review: 'Review',
+} as const;
+
+function validationLabel(s: ValidationState): string {
+  switch (s) {
+    case 'validated_by_system':
+      return 'Validated by system';
+    case 'needs_review':
+      return 'Needs review';
+    case 'pending_validation':
+      return 'Pending validation';
+    default:
+      return s;
+  }
+}
+
+const EMPTY_PARSED: ParsedRcaSections = {
+  diagnosis: '',
+  fixPlan: '',
+  actions: '',
+  verification: '',
+  rollback: '',
+};
+
+/** Stable shape for client timeout hint (only max_time affects resolveNexusAnalyzeTimeoutMs). */
+const ANALYSIS_TIMEOUT_HINT_BODY = {
+  system_prompt: DEFAULT_K8S_SYSTEM_PROMPT,
+  prompt: '',
+  max_new_tokens: 1024,
+  max_time: 120,
+  temperature: 0,
+  top_p: 1,
+} as const;
+
 export function AlertDetailPage() {
   const { id } = useParams<{ id: string }>();
   const alert = id ? mockAlerts.find((a) => a.id === id) : null;
-  const events = id ? mockAlertEvents.filter((e) => e.alertId === id) : [];
+  const events = useMemo(
+    () => (id ? mockAlertEvents.filter((e) => e.alertId === id) : []),
+    [id]
+  );
   const sortedEvents = [...events].sort(
     (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
   );
+
+  const [phase, setPhase] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [rawResponse, setRawResponse] = useState('');
+  const [parsed, setParsed] = useState<ParsedRcaSections>(EMPTY_PARSED);
+  const [parseOk, setParseOk] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [validationStatus, setValidationStatus] = useState<ValidationState>('pending_validation');
+
+  const analysisAbortRef = useRef<AbortController | null>(null);
+
+  const clientTimeoutMinutes = useMemo(
+    () => Math.ceil(resolveNexusAnalyzeTimeoutMs(ANALYSIS_TIMEOUT_HINT_BODY) / 60000),
+    []
+  );
+
+  const runAnalysis = useCallback(async () => {
+    if (!alert) return;
+    analysisAbortRef.current?.abort();
+    const ac = new AbortController();
+    analysisAbortRef.current = ac;
+
+    setPhase('loading');
+    setAnalysisError(null);
+    setRawResponse('');
+    setParsed(EMPTY_PARSED);
+    setParseOk(false);
+    setValidationStatus('pending_validation');
+
+    const evidenceText = buildMockIncidentEvidence(alert, events);
+    const prompt = buildEvidencePrompt(evidenceText);
+
+    const body = {
+      system_prompt: DEFAULT_K8S_SYSTEM_PROMPT,
+      prompt,
+      max_new_tokens: 1024,
+      max_time: 120,
+      temperature: 0,
+      top_p: 1,
+    };
+
+    try {
+      const raw = await postNexusAnalyze(body, { signal: ac.signal });
+      if (ac.signal.aborted) return;
+      setRawResponse(raw);
+      const { sections, parseOk: ok } = parseRcaResponse(raw);
+      setParsed(sections);
+      setParseOk(ok);
+      setValidationStatus(ok ? 'needs_review' : 'pending_validation');
+      setPhase('success');
+    } catch (e) {
+      if (isNexusAbortError(e)) return;
+      setAnalysisError(formatNexusAnalyzeError(e));
+      setPhase('error');
+    }
+  }, [alert, events]);
+
+  useEffect(() => {
+    if (alert) {
+      void runAnalysis();
+    }
+    return () => {
+      analysisAbortRef.current?.abort();
+    };
+  }, [alert?.id, runAnalysis]);
 
   if (!id || !alert) {
     return (
@@ -55,8 +178,13 @@ export function AlertDetailPage() {
     );
   }
 
-  const rca = getAlertRcaDetail(alert.id);
-  const similar = rca.similarIncidents.filter((s) => s.id !== alert.id);
+  const rcaMeta = getAlertRcaDetail(alert.id);
+  const similar = rcaMeta.similarIncidents.filter((s) => s.id !== alert.id);
+
+  const headerRcaStatus =
+    phase === 'loading' ? 'analyzing' : phase === 'error' ? alert.rcaStatus : phase === 'success' ? 'needs_review' : alert.rcaStatus;
+
+  const evidenceText = buildMockIncidentEvidence(alert, events);
 
   return (
     <div className="space-y-8">
@@ -69,7 +197,7 @@ export function AlertDetailPage() {
         </Link>
       </div>
 
-      {/* Top: title + meta + watch */}
+      {/* Top: title + meta + RCA signals + watch */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 flex-1">
           <h1 className="text-xl font-bold text-neutral-900 sm:text-2xl leading-tight">{alert.title}</h1>
@@ -83,24 +211,56 @@ export function AlertDetailPage() {
             <span className="text-sm text-neutral-500">{alert.environment}</span>
             <span className="text-sm text-neutral-500">Last seen: {formatLastSeen(alert.lastSeen)}</span>
           </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <span
+              className={`inline-flex px-2 py-0.5 text-xs font-semibold uppercase tracking-wide rounded-md ${rcaStatusStyles[headerRcaStatus]}`}
+            >
+              RCA: {rcaStatusLabel[headerRcaStatus]}
+            </span>
+            <span className="text-xs text-neutral-500 capitalize">
+              Triage confidence: <strong className="text-neutral-700">{alert.rcaConfidence}</strong>
+            </span>
+            <span className="text-xs text-neutral-500">
+              Validation: <strong className="text-neutral-700">{validationLabel(validationStatus)}</strong>
+            </span>
+            {phase === 'error' && (
+              <span className="text-xs text-red-600 font-medium">Analysis unavailable — check FastAPI on :8000</span>
+            )}
+          </div>
         </div>
-        <div className="shrink-0 flex items-center gap-2">
+        <div className="shrink-0 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+          <Button variant="secondary" className="!text-sm" onClick={() => void runAnalysis()} disabled={phase === 'loading'}>
+            {phase === 'loading' ? 'Analyzing…' : 'Re-run analysis'}
+          </Button>
           <WatchToggle alertId={alert.id} />
         </div>
       </div>
 
-      {/* Primary RCA workspace */}
-      <RcaTripletCards data={rca} />
-
-      {/* Middle: context */}
-      <div className="grid gap-6 sm:grid-cols-1 lg:grid-cols-2">
+      {/* Main RCA (from FastAPI + parser) */}
+      {phase === 'loading' && (
         <Card>
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-neutral-500 mb-3">
-            AI summary
-          </h2>
-          <p className="text-neutral-700 text-sm leading-relaxed">{rca.aiSummary}</p>
+          <p className="text-sm text-neutral-600">Sending incident evidence to the analyzer…</p>
+          <p className="text-xs text-neutral-500 mt-2">
+            Model inference can take several minutes. This request will wait up to ~{clientTimeoutMinutes} min before
+            timing out (see <code className="text-xs">VITE_NEXUSTRACE_ANALYZE_TIMEOUT_MS</code> to override).
+          </p>
         </Card>
+      )}
 
+      {phase === 'error' && analysisError && (
+        <Card className="border-red-200 bg-red-50/50">
+          <h2 className="text-sm font-semibold text-red-800 mb-2">Could not reach analyzer</h2>
+          <p className="text-sm text-red-700 mb-3">{analysisError}</p>
+          <Button onClick={() => void runAnalysis()}>Retry</Button>
+        </Card>
+      )}
+
+      {phase === 'success' && (
+        <RcaWorkspaceSections sections={parsed} parseOk={parseOk} rawResponse={rawResponse} />
+      )}
+
+      {/* Supporting */}
+      <div className="grid gap-6 sm:grid-cols-1 lg:grid-cols-2">
         <Card>
           <h2 className="text-sm font-semibold uppercase tracking-wider text-neutral-500 mb-3">
             Recent events
@@ -122,6 +282,18 @@ export function AlertDetailPage() {
               ))}
             </ul>
           )}
+        </Card>
+
+        <Card>
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-neutral-500 mb-3">
+            Raw incident evidence
+          </h2>
+          <p className="text-xs text-neutral-500 mb-2">
+            Bundle sent to the model (mock; later from ingestion API).
+          </p>
+          <pre className="text-xs font-mono bg-neutral-50 border border-neutral-200 rounded-md p-3 max-h-80 overflow-auto text-neutral-800 whitespace-pre-wrap">
+            {evidenceText}
+          </pre>
         </Card>
       </div>
 
@@ -153,17 +325,12 @@ export function AlertDetailPage() {
         )}
       </Card>
 
-      {/* Bottom: feedback + similar + explainability */}
-      <AlertFeedbackForm alertId={alert.id} />
-
       {similar.length > 0 && (
         <Card>
           <h2 className="text-sm font-semibold uppercase tracking-wider text-neutral-500 mb-3">
             Similar incidents
           </h2>
-          <p className="text-xs text-neutral-500 mb-4">
-            Retrieved from historical triage (mock retrieval — RAG-ready).
-          </p>
+          <p className="text-xs text-neutral-500 mb-4">Historical triage (mock).</p>
           <ul className="divide-y divide-neutral-100">
             {similar.map((s) => (
               <li key={s.id} className="py-3 first:pt-0 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -186,12 +353,7 @@ export function AlertDetailPage() {
         </Card>
       )}
 
-      <ExplainabilityPanel
-        evidenceSnippets={rca.evidenceSnippets}
-        reasoningBullets={rca.reasoningBullets}
-        modelsUsed={rca.modelsUsed}
-        systemValidated={rca.systemValidated}
-      />
+      <AlertFeedbackForm alertId={alert.id} />
     </div>
   );
 }

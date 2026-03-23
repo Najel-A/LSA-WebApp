@@ -14,6 +14,8 @@ export default defineConfig({
     proxy: {
       '/auth': 'http://localhost:3000',
       '/users': 'http://localhost:3000',
+      // Local FastAPI NexusTrace (avoid browser CORS)
+      '/query': 'http://127.0.0.1:8000',
     },
   },
 });
