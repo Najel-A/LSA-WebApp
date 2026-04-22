@@ -1,0 +1,57 @@
+services:
+  mongo:
+    image: mongo:6
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      PORT: "3000"
+      HOST: "0.0.0.0"
+      MONGODB_URI: "mongodb://mongo:27017/lsa-webapp"
+      JWT_SECRET: "dev-only-change-me"
+      CORS_ORIGIN: "http://localhost:8080"
+    depends_on:
+      - mongo
+    ports:
+      - "3000:3000"
+
+  # Optional: local FastAPI analyzer container.
+  # If you run your analyzer on the host instead, either:
+  # - set VITE_NEXUSTRACE_ANALYZE_URL=http://127.0.0.1:8000/query when building the frontend, or
+  # - change nginx.conf proxy for /query
+  analyzer:
+    image: python:3.11-slim
+    restart: unless-stopped
+    command: ["python", "-c", "from http.server import BaseHTTPRequestHandler,HTTPServer; import json; \nclass H(BaseHTTPRequestHandler):\n  def do_POST(self):\n    self.send_response(200); self.send_header('Content-Type','application/json'); self.end_headers();\n    self.wfile.write(json.dumps({'text':'Diagnosis\\nStub analyzer running.\\n\\nStep-by-Step Fix Plan\\nStart your real FastAPI analyzer on port 8000.\\n\\nConcrete Actions or Commands to Apply the Fix\\n- Replace this container with your analyzer.\\n\\nVerification Steps to Confirm the Fix Worked\\n- Confirm /query returns model output.\\n\\nRollback Guidance if the Fix Causes Issues\\n- Revert the change.'}).encode());\n\nHTTPServer(('0.0.0.0',8000),H).serve_forever()"]
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # Same-origin API calls through nginx reverse proxy (see nginx.conf)
+        VITE_API_BASE_URL: ""
+        # Use nginx /query proxy (to analyzer container). Override if analyzer is elsewhere.
+        VITE_NEXUSTRACE_ANALYZE_URL: "/query"
+        # Give inference plenty of client-side time by default (10 minutes).
+        VITE_NEXUSTRACE_ANALYZE_TIMEOUT_MS: "600000"
+    restart: unless-stopped
+    depends_on:
+      - backend
+      - analyzer
+    ports:
+      - "8080:80"
+
+volumes:
+  mongo_data:
+
