@@ -13,6 +13,7 @@ import { AccessDeniedPage } from '@/pages/AccessDeniedPage';
 import { AdminPage } from '@/pages/AdminPage';
 import { AdminModelPage } from '@/pages/AdminModelPage';
 import { AnalyzePage } from '@/pages/AnalyzePage';
+import { TriagePage } from '@/pages/TriagePage';
 
 export const router = createBrowserRouter([
   {
@@ -51,6 +52,14 @@ export const router = createBrowserRouter([
         element: (
           <RequireAuth>
             <AlertDetailPage />
+          </RequireAuth>
+        ),
+      },
+      {
+        path: '/triage',
+        element: (
+          <RequireAuth>
+            <TriagePage />
           </RequireAuth>
         ),
       },

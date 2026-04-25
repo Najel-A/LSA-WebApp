@@ -41,6 +41,12 @@ export function AppShell({ children }: AppShellProps) {
                     Analyze
                   </Link>
                   <Link
+                    to="/triage"
+                    className="text-sm font-medium text-neutral-600 hover:text-neutral-900 transition-colors"
+                  >
+                    Triage
+                  </Link>
+                  <Link
                     to="/admin"
                     className="text-sm font-medium text-neutral-600 hover:text-neutral-900 transition-colors"
                   >
