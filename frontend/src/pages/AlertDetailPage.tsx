@@ -353,7 +353,11 @@ export function AlertDetailPage() {
         </Card>
       )}
 
-      <AlertFeedbackForm alertId={alert.id} />
+      <AlertFeedbackForm
+        alertId={alert.id}
+        alertTitle={alert.title}
+        isTriaged={alert.rcaStatus === 'needs_review' || alert.rcaStatus === 'validated'}
+      />
     </div>
   );
 }

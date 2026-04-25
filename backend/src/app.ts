@@ -3,6 +3,7 @@ import express from 'express';
 import morgan from 'morgan';
 import { authRoutes } from './auth/auth.routes';
 import { userRoutes } from './users/user.routes';
+import { triageFeedbackRoutes } from './triageFeedback/triageFeedback.routes';
 
 /**
  * Build and return the Express app. Kept separate from server.ts for testing
@@ -26,6 +27,7 @@ export function createApp(): express.Application {
   // Route prefixes — auth and users namespaced for clarity
   app.use('/auth', authRoutes);
   app.use('/users', userRoutes);
+  app.use('/api/triage-feedback', triageFeedbackRoutes);
 
   // 404
   app.use((_req, res) => {
