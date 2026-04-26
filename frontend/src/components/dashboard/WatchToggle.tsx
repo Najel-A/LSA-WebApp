@@ -1,26 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useAppSelector } from '@/app/hooks';
-
-const STORAGE_PREFIX = 'alerts-watched';
-
-function getStorageKey(userId: string | undefined): string {
-  return userId ? `${STORAGE_PREFIX}-${userId}` : STORAGE_PREFIX;
-}
-
-function getWatchedSet(key: string): Set<string> {
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return new Set();
-    const parsed = JSON.parse(raw) as string[];
-    return new Set(Array.isArray(parsed) ? parsed : []);
-  } catch {
-    return new Set();
-  }
-}
-
-function setWatchedSet(key: string, set: Set<string>): void {
-  localStorage.setItem(key, JSON.stringify([...set]));
-}
+import { readIsAlertWatched, toggleAlertWatched } from './watchStorage';
 
 interface WatchToggleProps {
   alertId: string;
@@ -29,25 +9,16 @@ interface WatchToggleProps {
 
 export function WatchToggle({ alertId, className = '' }: WatchToggleProps) {
   const userId = useAppSelector((state) => state.auth.user?.id);
-  const storageKey = getStorageKey(userId);
 
   const [watched, setWatchedState] = useState(false);
 
   useEffect(() => {
-    const set = getWatchedSet(storageKey);
-    setWatchedState(set.has(alertId));
-  }, [alertId, storageKey]);
+    setWatchedState(readIsAlertWatched(alertId, userId));
+  }, [alertId, userId]);
 
   const toggle = useCallback(() => {
-    const set = getWatchedSet(storageKey);
-    if (set.has(alertId)) {
-      set.delete(alertId);
-    } else {
-      set.add(alertId);
-    }
-    setWatchedSet(storageKey, set);
-    setWatchedState(set.has(alertId));
-  }, [alertId, storageKey]);
+    setWatchedState(toggleAlertWatched(alertId, userId));
+  }, [alertId, userId]);
 
   return (
     <button
@@ -72,9 +43,4 @@ export function WatchToggle({ alertId, className = '' }: WatchToggleProps) {
       )}
     </button>
   );
-}
-
-export function isAlertWatched(alertId: string, userId: string | undefined): boolean {
-  const key = getStorageKey(userId);
-  return getWatchedSet(key).has(alertId);
 }

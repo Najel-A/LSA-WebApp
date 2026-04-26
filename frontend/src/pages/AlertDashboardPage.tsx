@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
-import { mockAlerts } from '@/mock/alerts';
 import type { AlertItem, TimeRangeKey } from '@/types/alerts';
+import { useAlertsQuery } from '@/features/alerts/alertsApi';
 import { FilterSidebar, type DashboardFilters } from '@/components/dashboard/FilterSidebar';
 import { FiltersDrawer } from '@/components/dashboard/FiltersDrawer';
 import { AlertsTable } from '@/components/dashboard/AlertsTable';
@@ -50,17 +50,19 @@ export function AlertDashboardPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [filtersDrawerOpen, setFiltersDrawerOpen] = useState(false);
 
-  const projectOptions = useMemo(() => [...new Set(mockAlerts.map((a) => a.project))].sort(), []);
-  const environmentOptions = useMemo(() => [...new Set(mockAlerts.map((a) => a.environment))].sort(), []);
+  const { data: alerts = [], isLoading, isError } = useAlertsQuery();
+
+  const projectOptions = useMemo(() => [...new Set(alerts.map((a) => a.project))].sort(), [alerts]);
+  const environmentOptions = useMemo(() => [...new Set(alerts.map((a) => a.environment))].sort(), [alerts]);
 
   const filteredAlerts = useMemo(() => {
-    let list = applyFilters(mockAlerts, filters);
+    let list = applyFilters(alerts, filters);
     if (searchQuery.trim()) {
       const q = searchQuery.trim().toLowerCase();
       list = list.filter((a) => a.title.toLowerCase().includes(q));
     }
     return list;
-  }, [filters, searchQuery]);
+  }, [alerts, filters, searchQuery]);
 
   const hasActiveFilters =
     filters.projects.length > 0 ||
@@ -163,7 +165,16 @@ export function AlertDashboardPage() {
         </aside>
 
         <main className="min-w-0 flex-1">
-          {filteredAlerts.length === 0 ? (
+          {isLoading ? (
+            <div className="rounded-lg border border-neutral-200 bg-white p-12 text-center">
+              <p className="text-neutral-600">Loading incidents…</p>
+            </div>
+          ) : isError ? (
+            <div className="rounded-lg border border-red-200 bg-red-50/50 p-12 text-center">
+              <p className="text-neutral-700 font-medium">Could not load incidents.</p>
+              <p className="text-sm text-neutral-500 mt-1">Check the backend is running and seeded.</p>
+            </div>
+          ) : filteredAlerts.length === 0 ? (
             <div className="rounded-lg border border-neutral-200 bg-white p-12 text-center">
               <p className="text-neutral-600">No incidents match these filters.</p>
               <Button

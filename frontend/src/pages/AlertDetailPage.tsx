@@ -1,8 +1,8 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { mockAlerts, mockAlertEvents } from '@/mock/alerts';
 import { getAlertRcaDetail } from '@/mock/alertRca';
 import { buildMockIncidentEvidence } from '@/mock/incidentEvidence';
+import { useAlertByIdQuery } from '@/features/alerts/alertsApi';
 import {
   DEFAULT_K8S_SYSTEM_PROMPT,
   buildEvidencePrompt,
@@ -92,11 +92,19 @@ const ANALYSIS_TIMEOUT_HINT_BODY = {
 
 export function AlertDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const alert = id ? mockAlerts.find((a) => a.id === id) : null;
-  const events = useMemo(
-    () => (id ? mockAlertEvents.filter((e) => e.alertId === id) : []),
-    [id]
-  );
+  const { data: alert, isLoading, isError } = useAlertByIdQuery(id ?? '', { skip: !id });
+
+  const events = useMemo(() => {
+    const ev = (alert?.recentEvents ?? alert?.timeline ?? []) as Array<{ message: string; timestamp: string; level?: string }>;
+    return ev.map((e, i) => ({
+      id: `ev-${alert?.id ?? 'unknown'}-${i}`,
+      alertId: alert?.id ?? '',
+      message: e.message,
+      timestamp: e.timestamp,
+      level: e.level,
+    }));
+  }, [alert?.id, alert?.recentEvents, alert?.timeline]);
+
   const sortedEvents = [...events].sort(
     (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
   );
@@ -163,9 +171,35 @@ export function AlertDetailPage() {
     return () => {
       analysisAbortRef.current?.abort();
     };
-  }, [alert?.id, runAnalysis]);
+  }, [alert, runAnalysis]);
 
-  if (!id || !alert) {
+  if (!id) {
+    return (
+      <div className="space-y-4">
+        <Card className="max-w-md mx-auto text-center py-12">
+          <p className="text-neutral-600 mb-4">Alert not found.</p>
+          <Link to="/dashboard">
+            <Button variant="secondary">Back to Dashboard</Button>
+          </Link>
+        </Card>
+      </div>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        <Card className="max-w-md mx-auto text-center py-12">
+          <p className="text-neutral-600 mb-4">Loading alert…</p>
+          <Link to="/dashboard">
+            <Button variant="secondary">Back to Dashboard</Button>
+          </Link>
+        </Card>
+      </div>
+    );
+  }
+
+  if (isError || !alert) {
     return (
       <div className="space-y-4">
         <Card className="max-w-md mx-auto text-center py-12">

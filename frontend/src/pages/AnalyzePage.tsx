@@ -1,7 +1,5 @@
 import { useState, useCallback, useMemo, useRef, type ChangeEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { mockAlerts, mockAlertEvents } from '@/mock/alerts';
-import { buildMockIncidentEvidence } from '@/mock/incidentEvidence';
 import {
   DEFAULT_K8S_SYSTEM_PROMPT,
   buildEvidencePrompt,
@@ -25,10 +23,24 @@ const EMPTY_PARSED: ParsedRcaSections = {
 };
 
 function defaultSandboxEvidence(): string {
-  const a = mockAlerts[0];
-  if (!a) return '';
-  const ev = mockAlertEvents.filter((e) => e.alertId === a.id);
-  return buildMockIncidentEvidence(a, ev);
+  return `## Context
+- Namespace: prod
+- Workload: deployment/launchpad-api
+- Pod: launchpad-api-7d9f8c6b4-xk2zq
+- Container: api
+- Image: registry.internal/launchpad/api:v1.4.2
+- Incident title: Example incident evidence
+- Severity: error
+- Environment label: production
+
+## kubectl get pods -n prod -l app=launchpad-api
+NAME                          READY   STATUS             RESTARTS   AGE
+launchpad-api-7d9f8c6b4-xk2zq  0/1     CrashLoopBackOff   12         45m
+
+## Container logs (api)
+TypeError: Cannot read property "config" of undefined at Module.run (app.js:42)
+at Object.getConfig (utils.js:102)
+`;
 }
 
 const ANALYSIS_TIMEOUT_HINT_BODY = {
