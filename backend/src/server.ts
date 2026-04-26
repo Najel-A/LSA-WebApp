@@ -3,7 +3,9 @@ import { createApp } from './app';
 import { connectDB } from './db/connection';
 
 const PORT = Number(process.env.PORT) || 3000;
-const HOST = process.env.HOST || '0.0.0.0';
+// Default to IPv6 any-address to support localhost (::1) dev proxying.
+// In Docker, HOST is set to 0.0.0.0 explicitly.
+const HOST = process.env.HOST || '::';
 
 let server: import('http').Server | null = null;
 

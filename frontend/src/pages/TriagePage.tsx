@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { getMyTriageFeedback } from '@/services/triageFeedbackApi';
 import type { TriageFeedback } from '@/types/triageFeedback';
-import { mockAlerts } from '@/mock/alerts';
+import { useAlertsQuery } from '@/features/alerts/alertsApi';
 
 type DiagnosisFilter = 'all' | 'correct' | 'partial' | 'incorrect';
 
@@ -17,6 +17,7 @@ export function TriagePage() {
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState('');
   const [diagnosisFilter, setDiagnosisFilter] = useState<DiagnosisFilter>('all');
+  const { data: alerts = [] } = useAlertsQuery();
 
   useEffect(() => {
     let mounted = true;
@@ -48,7 +49,7 @@ export function TriagePage() {
   }, [accessToken]);
 
   const enriched = useMemo(() => {
-    const byId = new Map(mockAlerts.map((a) => [a.id, a]));
+    const byId = new Map(alerts.map((a) => [a.id, a]));
     return rows.map((r) => {
       const alert = byId.get(r.incidentId);
       return {
@@ -56,7 +57,7 @@ export function TriagePage() {
         incidentTitle: r.incidentTitle ?? alert?.title ?? r.incidentId,
       };
     });
-  }, [rows]);
+  }, [rows, alerts]);
 
   const filtered = useMemo(() => {
     const query = q.trim().toLowerCase();
