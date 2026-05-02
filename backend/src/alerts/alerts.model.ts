@@ -7,6 +7,41 @@ export type RcaConfidenceBand = 'low' | 'medium' | 'high';
 
 export type AlertSourceType = 'seed' | 'prometheus' | 'cloudwatch' | 'manual' | 'system';
 
+export type AgentRunStatus = 'pending' | 'running' | 'complete' | 'failed';
+export type RiskLevel = 'low' | 'medium' | 'high';
+
+export interface AgentOutput {
+  status: AgentRunStatus;
+  diagnosis?: string;
+  fixPlan?: string;
+  actions?: string[];
+  confidence?: number; // 0..1
+  evidenceUsed?: string[];
+  startedAt?: Date;
+  completedAt?: Date;
+  error?: string;
+}
+
+export interface ReconcilerOutput {
+  status: AgentRunStatus;
+  selectedDiagnosis?: string;
+  selectedFixPlan?: string;
+  comparisonNotes?: string;
+  confidence?: number; // 0..1
+  completedAt?: Date;
+  error?: string;
+}
+
+export interface ValidationOutput {
+  status: AgentRunStatus;
+  isValid?: boolean;
+  riskLevel?: RiskLevel;
+  requiresHumanApproval?: boolean;
+  validationNotes?: string;
+  completedAt?: Date;
+  error?: string;
+}
+
 export interface AlertEvent {
   message: string;
   timestamp: Date;
@@ -39,6 +74,19 @@ export interface AlertDoc extends mongoose.Document {
   evidenceText?: string;
   rootCause?: string;
   recommendedFix?: string;
+  agentOutputs?: {
+    agent1?: AgentOutput;
+    agent2?: AgentOutput;
+  };
+  reconcilerOutput?: ReconcilerOutput;
+  validationOutput?: ValidationOutput;
+  finalRecommendation?: string;
+  humanReview?: {
+    required?: boolean;
+    reviewer?: string;
+    notes?: string;
+    reviewedAt?: Date;
+  };
   recentEvents?: AlertEvent[];
   timeline?: AlertEvent[];
   source?: AlertSourceMetadata;
@@ -74,6 +122,47 @@ const AlertSourceSchema = new mongoose.Schema<AlertSourceMetadata>(
   { _id: false }
 );
 
+const AgentOutputSchema = new mongoose.Schema<AgentOutput>(
+  {
+    status: { type: String, required: true, enum: ['pending', 'running', 'complete', 'failed'], index: true },
+    diagnosis: { type: String, required: false },
+    fixPlan: { type: String, required: false },
+    actions: { type: [String], required: false, default: [] },
+    confidence: { type: Number, required: false },
+    evidenceUsed: { type: [String], required: false, default: [] },
+    startedAt: { type: Date, required: false },
+    completedAt: { type: Date, required: false },
+    error: { type: String, required: false },
+  },
+  { _id: false }
+);
+
+const ReconcilerOutputSchema = new mongoose.Schema<ReconcilerOutput>(
+  {
+    status: { type: String, required: true, enum: ['pending', 'running', 'complete', 'failed'], index: true },
+    selectedDiagnosis: { type: String, required: false },
+    selectedFixPlan: { type: String, required: false },
+    comparisonNotes: { type: String, required: false },
+    confidence: { type: Number, required: false },
+    completedAt: { type: Date, required: false },
+    error: { type: String, required: false },
+  },
+  { _id: false }
+);
+
+const ValidationOutputSchema = new mongoose.Schema<ValidationOutput>(
+  {
+    status: { type: String, required: true, enum: ['pending', 'running', 'complete', 'failed'], index: true },
+    isValid: { type: Boolean, required: false },
+    riskLevel: { type: String, required: false, enum: ['low', 'medium', 'high'] },
+    requiresHumanApproval: { type: Boolean, required: false },
+    validationNotes: { type: String, required: false },
+    completedAt: { type: Date, required: false },
+    error: { type: String, required: false },
+  },
+  { _id: false }
+);
+
 const AlertSchema = new mongoose.Schema<AlertDoc>(
   {
     title: { type: String, required: true, index: true },
@@ -91,6 +180,32 @@ const AlertSchema = new mongoose.Schema<AlertDoc>(
     evidenceText: { type: String, required: false },
     rootCause: { type: String, required: false },
     recommendedFix: { type: String, required: false },
+    agentOutputs: {
+      type: new mongoose.Schema(
+        {
+          agent1: { type: AgentOutputSchema, required: false },
+          agent2: { type: AgentOutputSchema, required: false },
+        },
+        { _id: false }
+      ),
+      required: false,
+      default: undefined,
+    },
+    reconcilerOutput: { type: ReconcilerOutputSchema, required: false },
+    validationOutput: { type: ValidationOutputSchema, required: false },
+    finalRecommendation: { type: String, required: false },
+    humanReview: {
+      type: new mongoose.Schema(
+        {
+          required: { type: Boolean, required: false },
+          reviewer: { type: String, required: false },
+          notes: { type: String, required: false },
+          reviewedAt: { type: Date, required: false },
+        },
+        { _id: false }
+      ),
+      required: false,
+    },
     recentEvents: { type: [AlertEventSchema], required: false, default: [] },
     timeline: { type: [AlertEventSchema], required: false, default: [] },
     source: { type: AlertSourceSchema, required: false },

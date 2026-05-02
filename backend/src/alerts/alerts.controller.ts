@@ -260,6 +260,71 @@ export async function ingestAlert(req: Request, res: Response): Promise<void> {
   res.status(201).json(mapDetail(doc));
 }
 
+/**
+ * Internal/manual alert creation (no ingest API key).
+ * Use this from your own UI/tools to add a new entry quickly.
+ */
+export async function createAlert(req: Request, res: Response): Promise<void> {
+  const body = (req.body ?? {}) as IngestBody;
+
+  if (typeof body.title !== 'string' || !body.title.trim()) {
+    res.status(400).json({ error: 'title is required' });
+    return;
+  }
+  if (typeof body.environment !== 'string' || !body.environment.trim()) {
+    res.status(400).json({ error: 'environment is required' });
+    return;
+  }
+
+  const project = typeof body.project === 'string' && body.project.trim() ? body.project.trim() : 'Launchpad';
+  const status: AlertStatus = isAlertStatus(body.status) ? body.status : 'active';
+  const severity: AlertSeverity = isAlertSeverity(body.severity) ? body.severity : 'error';
+  const totalCount = asNumber(body.totalCount) ?? 1;
+  const lastSeenAt = asDate(body.lastSeenAt) ?? new Date();
+  const trend = asNumberArray(body.trend) ?? [];
+  const ips = asNumber(body.ips) ?? undefined;
+  const people = asNumber(body.people) ?? undefined;
+  const rcaStatus: RcaStatus = isRcaStatus(body.rcaStatus) ? body.rcaStatus : 'pending';
+  const rcaConfidence: RcaConfidenceBand = isRcaConfidence(body.rcaConfidence) ? body.rcaConfidence : 'low';
+
+  const recentEvents = asEventArray(body.recentEvents);
+  if (recentEvents === null) {
+    res.status(400).json({ error: 'recentEvents must be an array of {message,timestamp,level?}' });
+    return;
+  }
+  const timeline = asEventArray(body.timeline);
+  if (timeline === null) {
+    res.status(400).json({ error: 'timeline must be an array of {message,timestamp,level?}' });
+    return;
+  }
+
+  // Force manual source unless explicitly provided (still validated).
+  const source = asSource(body.source) ?? { sourceType: 'manual' as const };
+
+  const doc = await createAlertFromExternalSource({
+    title: body.title.trim(),
+    environment: body.environment.trim(),
+    project,
+    status,
+    severity,
+    totalCount,
+    lastSeenAt,
+    trend,
+    ips,
+    people,
+    rcaStatus,
+    rcaConfidence,
+    evidenceText: typeof body.evidenceText === 'string' ? body.evidenceText : undefined,
+    rootCause: typeof body.rootCause === 'string' ? body.rootCause : undefined,
+    recommendedFix: typeof body.recommendedFix === 'string' ? body.recommendedFix : undefined,
+    recentEvents: recentEvents ?? [],
+    timeline: (timeline ?? []) as any,
+    source,
+  });
+
+  res.status(201).json(mapDetail(doc));
+}
+
 export async function seedAlerts(_req: Request, res: Response): Promise<void> {
   if (process.env.NODE_ENV === 'production') {
     res.status(404).json({ error: 'Not Found' });

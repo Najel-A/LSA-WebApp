@@ -5,6 +5,7 @@ import { authRoutes } from './auth/auth.routes';
 import { userRoutes } from './users/user.routes';
 import { triageFeedbackRoutes } from './triageFeedback/triageFeedback.routes';
 import { alertsRoutes } from './alerts/alerts.routes';
+import { incidentsRoutes } from './incidents/incidents.routes';
 
 /**
  * Build and return the Express app. Kept separate from server.ts for testing
@@ -30,6 +31,7 @@ export function createApp(): express.Application {
   app.use('/users', userRoutes);
   app.use('/api/triage-feedback', triageFeedbackRoutes);
   app.use('/api/alerts', alertsRoutes);
+  app.use('/api/incidents', incidentsRoutes);
 
   // 404
   app.use((_req, res) => {
