@@ -136,7 +136,7 @@ export function AlertDetailPage() {
     setParseOk(false);
     setValidationStatus('pending_validation');
 
-    const evidenceText = buildMockIncidentEvidence(alert, events);
+    const evidenceText = alert.evidenceText?.trim() || buildMockIncidentEvidence(alert, events);
     const prompt = buildEvidencePrompt(evidenceText);
 
     const body = {
@@ -218,7 +218,7 @@ export function AlertDetailPage() {
   const headerRcaStatus =
     phase === 'loading' ? 'analyzing' : phase === 'error' ? alert.rcaStatus : phase === 'success' ? 'needs_review' : alert.rcaStatus;
 
-  const evidenceText = buildMockIncidentEvidence(alert, events);
+  const evidenceText = alert.evidenceText?.trim() || buildMockIncidentEvidence(alert, events);
 
   return (
     <div className="space-y-8">
