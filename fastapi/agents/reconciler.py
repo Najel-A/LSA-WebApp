@@ -43,28 +43,36 @@ _STUB_COMMANDS = [
 
 _SYSTEM_PROMPT = (
     "You are a Kubernetes Site Reliability Engineering (SRE) executor. "
-    "Two upstream RCA agents have proposed competing diagnoses for the same "
-    "incident. Synthesize them into a final diagnosis, then propose a "
-    "concrete fix plan and the kubectl commands to apply it. Keep concrete "
-    "specifics (resource names, namespaces, error reasons) that either "
-    "agent got right; drop hedging. Respond as JSON only — no prose, no "
-    "code fences, no commentary."
+    "Two upstream RCA agents have proposed competing diagnoses. Synthesize "
+    "them into a final diagnosis, propose a concrete fix plan, and list the "
+    "kubectl commands to apply it. Keep concrete specifics (resource names, "
+    "namespaces, error reasons) that either agent got right; drop hedging.\n\n"
+    "Respond as a single JSON object with EXACTLY these keys: "
+    '"diagnosis" (string), "fix_plan" (non-empty array of strings), '
+    '"commands" (non-empty array of strings). ALL THREE KEYS ARE REQUIRED. '
+    "Output only the JSON — no prose, no markdown, no code fences.\n\n"
+    "Example of a valid response:\n"
+    '{"diagnosis": "Pod web-api-7d7 in namespace web is stuck in '
+    "ImagePullBackOff because the imagePullSecret 'gcr-creds' is missing "
+    "the .dockerconfigjson key required to authenticate against ghcr.io.\", "
+    '"fix_plan": ["Recreate the gcr-creds secret with valid registry '
+    'credentials in namespace web.", "Verify the deployment references the '
+    'corrected secret under imagePullSecrets.", "Delete the stuck pod and '
+    'let the Deployment controller recreate it."], '
+    '"commands": ["kubectl -n web create secret docker-registry gcr-creds '
+    "--docker-server=ghcr.io --docker-username=svc --docker-password=$TOKEN "
+    '--dry-run=client -o yaml | kubectl apply -f -", '
+    '"kubectl -n web rollout restart deployment/web-api", '
+    '"kubectl -n web get pods -w"]}'
 )
 
-_PROMPT_TEMPLATE = """Two RCA agents proposed competing diagnoses for the same Kubernetes incident.
-
-Agent 1 diagnosis (confidence 0.82):
+_PROMPT_TEMPLATE = """Agent 1 diagnosis (confidence 0.82):
 {a1}
 
 Agent 2 diagnosis (confidence 0.78):
 {a2}
 
-Return JSON only, with this exact shape:
-{{
-  "diagnosis": "<one concise paragraph naming the specific resource/error>",
-  "fix_plan": ["<step 1>", "<step 2>", "<step 3>"],
-  "commands": ["kubectl ...", "kubectl ..."]
-}}"""
+Return the JSON now."""
 
 # Tolerant JSON extractor — handles models that wrap the object in
 # ```json ... ``` fences or add a stray sentence before/after.
@@ -141,11 +149,21 @@ async def _reconcile(
                 list(_STUB_COMMANDS),
                 "real-parse-fallback",
             )
+        raw_fix = parsed.get("fix_plan")
+        raw_cmds = parsed.get("commands")
+        # `real` only when the model actually populated all three structured
+        # fields. Small models often drop array fields and return only the
+        # diagnosis; flag that as `real-partial` so the frontend / UI can
+        # tell stub-derived plan/commands apart from genuine model output.
+        all_fields_real = (
+            isinstance(raw_fix, list) and any(str(x).strip() for x in raw_fix)
+            and isinstance(raw_cmds, list) and any(str(x).strip() for x in raw_cmds)
+        )
         return (
             str(parsed.get("diagnosis") or winner.diagnosis).strip(),
-            _coerce_str_list(parsed.get("fix_plan"), _STUB_FIX_PLAN),
-            _coerce_str_list(parsed.get("commands"), _STUB_COMMANDS),
-            "real",
+            _coerce_str_list(raw_fix, _STUB_FIX_PLAN),
+            _coerce_str_list(raw_cmds, _STUB_COMMANDS),
+            "real" if all_fields_real else "real-partial",
         )
     except (httpx.HTTPError, httpx.RequestError) as e:
         return (
