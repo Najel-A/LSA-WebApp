@@ -70,12 +70,20 @@ async def call_model(
     endpoint: ModelEndpoint,
     prompt: str,
     *,
+    system_prompt: str | None = None,
     max_tokens: int = 1024,
     temperature: float = 0.0,
+    response_format: dict | None = None,
 ) -> str:
     """OpenAI-compatible chat-completion call.
 
-    Wraps `prompt` in a single user message and POSTs to /v1/chat/completions.
+    Builds a messages array — a system message (when `system_prompt` is
+    provided) followed by the user prompt — and POSTs to
+    /v1/chat/completions. Ollama, vLLM, and llama.cpp's HTTP server all
+    accept this shape and apply the model's chat template (ChatML for
+    Qwen, the DeepSeek template for deepseek-r1, etc.), so callers do
+    not need to wrap the prompt in `<|im_start|>` markers themselves.
+
     Returns the assistant's reply text, stripped of <think>...</think>
     reasoning blocks. Raises httpx.HTTPError on transport / non-2xx; the
     caller decides whether to fall back to a stub.
@@ -84,16 +92,27 @@ async def call_model(
     deepseek-r1 (which can spend 200-600 tokens on chain-of-thought before
     the final answer) still leave room for the actual response.
     """
+    messages: list[dict[str, str]] = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": prompt})
+
+    body: dict = {
+        "model": endpoint.model_name,
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "stream": False,
+    }
+    if response_format is not None:
+        # Ollama / vLLM / most OpenAI-compat servers accept
+        # {"type": "json_object"} to force a JSON-parseable reply.
+        body["response_format"] = response_format
+
     async with httpx.AsyncClient(timeout=endpoint.timeout_s) as client:
         resp = await client.post(
             f"{endpoint.url}/v1/chat/completions",
-            json={
-                "model": endpoint.model_name,
-                "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": max_tokens,
-                "temperature": temperature,
-                "stream": False,
-            },
+            json=body,
         )
         resp.raise_for_status()
         data = resp.json()

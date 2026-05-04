@@ -29,9 +29,20 @@ _STUB_DIAGNOSIS = (
     "Check the event_message and pod_describe for the exact identifier."
 )
 
-_PROMPT_TEMPLATE = """You are a Kubernetes root-cause-analysis agent. Read the incident evidence and produce a single concise diagnostic paragraph identifying the most likely root cause. Do not include a fix plan or commands.
+_SYSTEM_PROMPT = (
+    "You are a Kubernetes Site Reliability Engineering (SRE) agent specialized "
+    "in root-cause analysis. Given raw observability evidence (kubectl describe, "
+    "events, logs, metrics) from a Kubernetes incident, identify the single "
+    "most likely root cause. Be concrete: name the missing or misconfigured "
+    "resource (Secret, ConfigMap key, image tag, PVC, RBAC binding, etc.) when "
+    "the evidence supports it. Do NOT include a fix plan, commands, "
+    "verification steps, or rollback guidance — those are produced by other "
+    "agents downstream."
+)
 
-Incident evidence:
+_PROMPT_TEMPLATE = """Analyze this Kubernetes incident and produce a single concise diagnostic paragraph identifying the most likely root cause.
+
+Incident Evidence:
 {evidence}
 
 Diagnosis:"""
@@ -59,7 +70,12 @@ async def _diagnose(evidence: str) -> tuple[str, str]:
         prompt = _PROMPT_TEMPLATE.format(evidence=evidence)
         # 1024 is intentional — deepseek-r1 spends 200-600 tokens on <think>
         # reasoning before the final answer. Smaller caps starve the answer.
-        text = await call_model(_ENDPOINT, prompt, max_tokens=1024)
+        text = await call_model(
+            _ENDPOINT,
+            prompt,
+            system_prompt=_SYSTEM_PROMPT,
+            max_tokens=1024,
+        )
         if not text:
             return _STUB_DIAGNOSIS, "real-empty-fallback"
         return text, "real"

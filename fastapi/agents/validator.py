@@ -1,9 +1,9 @@
 """Validation agent.
 
 When `VALIDATOR_URL` is set, calls the mrunalikatta/validator-llama-3b
-model and uses its output as the safety_notes string. Verification and
-rollback step lists stay canned for now — structured-output parsing from
-a free-text model is brittle until the API contract is confirmed.
+model and asks it for a JSON object with `safety_notes`, `verification`,
+and `rollback`. We parse the JSON and use the parsed values verbatim,
+falling back to canned stubs only if parsing fails.
 
 When `VALIDATOR_URL` is unset, behaves exactly as the original stub.
 """
@@ -11,6 +11,8 @@ When `VALIDATOR_URL` is unset, behaves exactly as the original stub.
 from __future__ import annotations
 
 import asyncio
+import json
+import re
 
 import httpx
 
@@ -42,7 +44,18 @@ _STUB_SAFETY_NO_COMMANDS = (
     "No mutating commands proposed; review optional."
 )
 
-_PROMPT_TEMPLATE = """You are a Kubernetes safety validator. Given the diagnosis and proposed remediation commands below, produce a one-paragraph safety assessment. Note any commands that mutate cluster state, any preconditions that must hold before running them, and any obvious risks.
+_SYSTEM_PROMPT = (
+    "You are a Kubernetes Site Reliability Engineering (SRE) safety validator. "
+    "Given a final diagnosis and a set of proposed remediation commands, "
+    "assess safety and produce concrete verification steps and rollback "
+    "guidance. Flag any commands that mutate cluster state (delete, apply, "
+    "patch, scale, rollout), preconditions that must hold (correct namespace, "
+    "resource exists, no in-flight rollout), and obvious risks (downtime, "
+    "data loss, blast radius). Respond as JSON only — no prose, no code "
+    "fences, no commentary."
+)
+
+_PROMPT_TEMPLATE = """Assess the safety of running the proposed remediation commands against the named Kubernetes incident.
 
 Diagnosis:
 {diagnosis}
@@ -50,7 +63,33 @@ Diagnosis:
 Proposed commands:
 {commands}
 
-Safety assessment:"""
+Return JSON only, with this exact shape:
+{{
+  "safety_notes": "<one concise paragraph: mutation flags, preconditions, risks>",
+  "verification": ["<post-fix check 1>", "<post-fix check 2>"],
+  "rollback": ["<rollback step 1>", "<rollback step 2>"]
+}}"""
+
+_JSON_BLOCK_RE = re.compile(r"\{.*\}", re.DOTALL)
+
+
+def _parse_json(text: str) -> dict | None:
+    if not text:
+        return None
+    match = _JSON_BLOCK_RE.search(text)
+    if not match:
+        return None
+    try:
+        parsed = json.loads(match.group(0))
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _coerce_str_list(value, fallback: list[str]) -> list[str]:
+    if not isinstance(value, list) or not value:
+        return list(fallback)
+    return [str(item) for item in value if str(item).strip()]
 
 
 async def run(bb: IncidentBlackboard, incident_id: str) -> ValidatorOutput:
@@ -61,11 +100,11 @@ async def run(bb: IncidentBlackboard, incident_id: str) -> ValidatorOutput:
         )
 
     has_commands = bool(rec.commands)
-    safety_notes, mode = await _assess(rec, has_commands)
+    safety_notes, verification, rollback, mode = await _assess(rec, has_commands)
 
     output = ValidatorOutput(
-        verification=list(_STUB_VERIFICATION),
-        rollback=list(_STUB_ROLLBACK),
+        verification=verification,
+        rollback=rollback,
         requires_human_review=has_commands,
         safety_notes=f"[{mode}] {safety_notes}",
     )
@@ -73,19 +112,49 @@ async def run(bb: IncidentBlackboard, incident_id: str) -> ValidatorOutput:
     return output
 
 
-async def _assess(rec: ReconcilerOutput, has_commands: bool) -> tuple[str, str]:
-    fallback = _STUB_SAFETY_BASE if has_commands else _STUB_SAFETY_NO_COMMANDS
+async def _assess(
+    rec: ReconcilerOutput,
+    has_commands: bool,
+) -> tuple[str, list[str], list[str], str]:
+    fallback_safety = _STUB_SAFETY_BASE if has_commands else _STUB_SAFETY_NO_COMMANDS
     if _ENDPOINT is None:
         await asyncio.sleep(_LATENCY_S)
-        return fallback, "stub"
+        return (
+            fallback_safety,
+            list(_STUB_VERIFICATION),
+            list(_STUB_ROLLBACK),
+            "stub",
+        )
     try:
         prompt = _PROMPT_TEMPLATE.format(
             diagnosis=rec.diagnosis,
             commands="\n".join(f"- {c}" for c in rec.commands) or "(none)",
         )
-        text = await call_model(_ENDPOINT, prompt, max_tokens=600)
-        if not text:
-            return fallback, "real-empty-fallback"
-        return text, "real"
+        text = await call_model(
+            _ENDPOINT,
+            prompt,
+            system_prompt=_SYSTEM_PROMPT,
+            max_tokens=900,
+            response_format={"type": "json_object"},
+        )
+        parsed = _parse_json(text)
+        if not parsed:
+            return (
+                fallback_safety,
+                list(_STUB_VERIFICATION),
+                list(_STUB_ROLLBACK),
+                "real-parse-fallback",
+            )
+        return (
+            str(parsed.get("safety_notes") or fallback_safety).strip(),
+            _coerce_str_list(parsed.get("verification"), _STUB_VERIFICATION),
+            _coerce_str_list(parsed.get("rollback"), _STUB_ROLLBACK),
+            "real",
+        )
     except (httpx.HTTPError, httpx.RequestError) as e:
-        return f"{fallback} (validator call failed: {e!r})", "real-error-fallback"
+        return (
+            f"{fallback_safety} (validator call failed: {e!r})",
+            list(_STUB_VERIFICATION),
+            list(_STUB_ROLLBACK),
+            "real-error-fallback",
+        )
