@@ -19,6 +19,7 @@ export interface AlertItem {
   people?: number;
   rcaStatus: RcaStatus;
   rcaConfidence: RcaConfidenceBand;
+  evidenceText?: string;
 }
 
 export interface AlertEvent {
