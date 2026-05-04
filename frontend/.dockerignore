@@ -1,0 +1,11 @@
+node_modules
+dist
+build
+.vite
+.cache
+npm-debug.log*
+.env
+.env.*
+!.env.example
+.git
+*.md
