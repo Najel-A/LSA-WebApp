@@ -46,29 +46,37 @@ _STUB_SAFETY_NO_COMMANDS = (
 
 _SYSTEM_PROMPT = (
     "You are a Kubernetes Site Reliability Engineering (SRE) safety validator. "
-    "Given a final diagnosis and a set of proposed remediation commands, "
-    "assess safety and produce concrete verification steps and rollback "
-    "guidance. Flag any commands that mutate cluster state (delete, apply, "
-    "patch, scale, rollout), preconditions that must hold (correct namespace, "
-    "resource exists, no in-flight rollout), and obvious risks (downtime, "
-    "data loss, blast radius). Respond as JSON only — no prose, no code "
-    "fences, no commentary."
+    "Given a final diagnosis and proposed remediation commands, assess safety "
+    "and produce concrete verification + rollback steps. Flag commands that "
+    "mutate cluster state (delete, apply, patch, scale, rollout), call out "
+    "preconditions (correct namespace, resource exists, no in-flight "
+    "rollout), and surface risks (downtime, data loss, blast radius).\n\n"
+    "Respond as a single JSON object with EXACTLY these keys: "
+    '"safety_notes" (string), "verification" (non-empty array of strings), '
+    '"rollback" (non-empty array of strings). ALL THREE KEYS ARE REQUIRED. '
+    "Output only the JSON — no prose, no markdown, no code fences.\n\n"
+    "Example of a valid response:\n"
+    '{"safety_notes": "The kubectl delete pod command terminates only the '
+    "named pod, which the Deployment controller will recreate; no data loss "
+    "expected unless the pod owns local state. Confirm the namespace before "
+    'running. The rollout restart is a graceful in-place restart.", '
+    '"verification": ["kubectl -n web get pod web-api-7d7 -o '
+    "jsonpath='{.status.phase}' returns 'Running' within 60s\", "
+    '"kubectl -n web logs web-api-7d7 --tail=50 shows no fatal errors", '
+    '"kubectl -n web get events --since=2m has no Warning entries for the '
+    'pod"], '
+    '"rollback": ["kubectl -n web rollout undo deployment/web-api", '
+    '"Restore the previous secret: kubectl -n web apply -f '
+    '/tmp/gcr-creds-backup.yaml"]}'
 )
 
-_PROMPT_TEMPLATE = """Assess the safety of running the proposed remediation commands against the named Kubernetes incident.
-
-Diagnosis:
+_PROMPT_TEMPLATE = """Diagnosis:
 {diagnosis}
 
 Proposed commands:
 {commands}
 
-Return JSON only, with this exact shape:
-{{
-  "safety_notes": "<one concise paragraph: mutation flags, preconditions, risks>",
-  "verification": ["<post-fix check 1>", "<post-fix check 2>"],
-  "rollback": ["<rollback step 1>", "<rollback step 2>"]
-}}"""
+Return the JSON now."""
 
 _JSON_BLOCK_RE = re.compile(r"\{.*\}", re.DOTALL)
 
@@ -145,11 +153,17 @@ async def _assess(
                 list(_STUB_ROLLBACK),
                 "real-parse-fallback",
             )
+        raw_ver = parsed.get("verification")
+        raw_roll = parsed.get("rollback")
+        all_fields_real = (
+            isinstance(raw_ver, list) and any(str(x).strip() for x in raw_ver)
+            and isinstance(raw_roll, list) and any(str(x).strip() for x in raw_roll)
+        )
         return (
             str(parsed.get("safety_notes") or fallback_safety).strip(),
-            _coerce_str_list(parsed.get("verification"), _STUB_VERIFICATION),
-            _coerce_str_list(parsed.get("rollback"), _STUB_ROLLBACK),
-            "real",
+            _coerce_str_list(raw_ver, _STUB_VERIFICATION),
+            _coerce_str_list(raw_roll, _STUB_ROLLBACK),
+            "real" if all_fields_real else "real-partial",
         )
     except (httpx.HTTPError, httpx.RequestError) as e:
         return (
