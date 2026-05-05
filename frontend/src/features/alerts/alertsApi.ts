@@ -37,13 +37,40 @@ export const alertsApi = api.injectEndpoints({
         const qs = params.toString();
         return `/api/alerts${qs ? `?${qs}` : ''}`;
       },
+      providesTags: (result) =>
+        result
+          ? [
+              { type: 'Alerts' as const, id: 'LIST' },
+              ...result.map((a) => ({ type: 'Alert' as const, id: a.id })),
+            ]
+          : [{ type: 'Alerts' as const, id: 'LIST' }],
     }),
 
     alertById: builder.query<AlertDetailDto, string>({
       query: (id) => `/api/alerts/${id}`,
+      providesTags: (_result, _err, id) => [{ type: 'Alert' as const, id }],
+    }),
+
+    createAlert: builder.mutation<
+      AlertDetailDto,
+      {
+        title: string;
+        environment: string;
+        project?: string;
+        status?: AlertItem['status'];
+        severity?: AlertItem['severity'];
+        evidenceText?: string;
+      }
+    >({
+      query: (body) => ({
+        url: '/api/alerts',
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: [{ type: 'Alerts', id: 'LIST' }],
     }),
   }),
 });
 
-export const { useAlertsQuery, useAlertByIdQuery } = alertsApi;
+export const { useAlertsQuery, useAlertByIdQuery, useCreateAlertMutation } = alertsApi;
 

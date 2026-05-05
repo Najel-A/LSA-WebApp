@@ -17,7 +17,10 @@ export function TriagePage() {
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState('');
   const [diagnosisFilter, setDiagnosisFilter] = useState<DiagnosisFilter>('all');
-  const { data: alerts = [] } = useAlertsQuery();
+  // Refetch when entering triage so new alerts are visible.
+  const { data: alerts = [] } = useAlertsQuery(undefined, {
+    refetchOnMountOrArgChange: true,
+  });
 
   useEffect(() => {
     let mounted = true;

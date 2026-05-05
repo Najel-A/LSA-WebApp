@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { AlertItem, TimeRangeKey } from '@/types/alerts';
 import { useAlertsQuery } from '@/features/alerts/alertsApi';
 import { FilterSidebar, type DashboardFilters } from '@/components/dashboard/FilterSidebar';
@@ -6,6 +6,8 @@ import { FiltersDrawer } from '@/components/dashboard/FiltersDrawer';
 import { AlertsTable } from '@/components/dashboard/AlertsTable';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { useAppSelector } from '@/app/hooks';
+import { getMyTriageFeedback } from '@/services/triageFeedbackApi';
 
 const DEFAULT_FILTERS: DashboardFilters = {
   projects: [],
@@ -49,20 +51,54 @@ export function AlertDashboardPage() {
   const [filters, setFilters] = useState<DashboardFilters>(DEFAULT_FILTERS);
   const [searchQuery, setSearchQuery] = useState('');
   const [filtersDrawerOpen, setFiltersDrawerOpen] = useState(false);
+  const accessToken = useAppSelector((s) => s.auth.accessToken);
+  const [triagedIncidentIds, setTriagedIncidentIds] = useState<Set<string>>(() => new Set());
 
-  const { data: alerts = [], isLoading, isError } = useAlertsQuery();
+  // Refetch when (re)entering the page so newly-created alerts appear without a hard refresh.
+  const { data: alerts = [], isLoading, isError } = useAlertsQuery(undefined, {
+    refetchOnMountOrArgChange: true,
+  });
 
-  const projectOptions = useMemo(() => [...new Set(alerts.map((a) => a.project))].sort(), [alerts]);
-  const environmentOptions = useMemo(() => [...new Set(alerts.map((a) => a.environment))].sort(), [alerts]);
+  // Load the current user's triage feedback so we can hide already-triaged alerts from the dashboard.
+  useEffect(() => {
+    let mounted = true;
+    setTriagedIncidentIds(new Set());
+
+    if (!accessToken) return;
+
+    (async () => {
+      try {
+        const rows = await getMyTriageFeedback(accessToken);
+        if (!mounted) return;
+        setTriagedIncidentIds(new Set(rows.map((r) => r.incidentId).filter(Boolean)));
+      } catch {
+        // Non-blocking: if this fails, we just show all alerts.
+        if (!mounted) return;
+        setTriagedIncidentIds(new Set());
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, [accessToken]);
+
+  const visibleAlerts = useMemo(() => {
+    if (!triagedIncidentIds.size) return alerts;
+    return alerts.filter((a) => !triagedIncidentIds.has(a.id));
+  }, [alerts, triagedIncidentIds]);
+
+  const projectOptions = useMemo(() => [...new Set(visibleAlerts.map((a) => a.project))].sort(), [visibleAlerts]);
+  const environmentOptions = useMemo(() => [...new Set(visibleAlerts.map((a) => a.environment))].sort(), [visibleAlerts]);
 
   const filteredAlerts = useMemo(() => {
-    let list = applyFilters(alerts, filters);
+    let list = applyFilters(visibleAlerts, filters);
     if (searchQuery.trim()) {
       const q = searchQuery.trim().toLowerCase();
       list = list.filter((a) => a.title.toLowerCase().includes(q));
     }
     return list;
-  }, [alerts, filters, searchQuery]);
+  }, [visibleAlerts, filters, searchQuery]);
 
   const hasActiveFilters =
     filters.projects.length > 0 ||

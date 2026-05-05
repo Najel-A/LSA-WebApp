@@ -43,5 +43,9 @@ const baseQueryWithReauth: BaseQueryFn<
 export const api = createApi({
   baseQuery: baseQueryWithReauth,
   endpoints: () => ({}),
-  tagTypes: ['Me'],
+  // TagTypes enable RTK Query cache invalidation + targeted refetching.
+  tagTypes: ['Me', 'Alerts', 'Alert'],
+  // Help keep UI fresh across navigation/backgrounding.
+  refetchOnFocus: true,
+  refetchOnReconnect: true,
 });
