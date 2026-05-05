@@ -1,0 +1,83 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nexus-trace-validator-llama
+  namespace: nexus-trace
+  labels:
+    app.kubernetes.io/name: nexus-trace-validator-llama
+    app.kubernetes.io/component: model
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nexus-trace-validator-llama
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nexus-trace-validator-llama
+        app.kubernetes.io/component: model
+    spec:
+      tolerations:
+        - key: "gpu-node"
+          operator: "Equal"
+          value: "true"
+          effect: "NoSchedule"
+      containers:
+        - name: validator-llama
+          image: mrunalikatta/validator-llama-3b:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: MODEL_PROFILE
+              value: "llama"
+            - name: ADAPTER_PATH
+              value: "/adapters"
+            - name: PORT
+              value: "8000"
+          volumeMounts:
+            - name: adapters
+              mountPath: /adapters
+              subPath: validator-llama
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "2Gi"
+            limits:
+              cpu: "4"
+              memory: "12Gi"
+      volumes:
+        - name: adapters
+          persistentVolumeClaim:
+            claimName: nexus-trace-model-adapters
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: validator-llama
+  namespace: nexus-trace
+  labels:
+    app.kubernetes.io/name: nexus-trace-validator-llama
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: nexus-trace-validator-llama
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+

@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama-2b
+  namespace: nexus-trace
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ollama-2b
+  template:
+    metadata:
+      labels:
+        app: ollama-2b
+    spec:
+      containers:
+        - name: ollama
+          image: ollama/ollama:latest
+          ports:
+            - name: http
+              containerPort: 11434
+          resources:
+            limits:
+              cpu: "2"
+              memory: "8Gi"
+            requests:
+              cpu: "1"
+              memory: "4Gi"
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - |
+                    ollama serve &
+                    sleep 10
+                    ollama pull gemma:2b
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-2b
+  namespace: nexus-trace
+spec:
+  selector:
+    app: ollama-2b
+  ports:
+    - name: http
+      port: 11434
+      targetPort: 11434
+  type: ClusterIP
+

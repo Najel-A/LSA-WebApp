@@ -1,28 +1,12 @@
-# =============================================================================
-# NexusTrace — Kubernetes baseline (multi-document)
-# Apply:  kubectl apply -f k8s/nexus-trace.yaml
-# Delete: kubectl delete -f k8s/nexus-trace.yaml
 #
-# Architecture (browser → services):
-#   Internet → LoadBalancer:80 (nginx + React static)
-#              → same-origin /api/*, /auth/*, /health → ClusterIP backend:3000
-#              → same-origin /query → ClusterIP analyzer:8000
-#   backend → MongoDB ClusterIP mongo:27017
+# NOTE: This file is kept for backwards compatibility.
 #
-# IMPORTANT — upstream DNS names vs Docker Hub image names
-# Your frontend image bakes nginx upstreams as hostnames **backend** and
-# **analyzer** (see frontend/nginx.conf), NOT "nexus-trace-backend". ClusterIP
-# Service.metadata.name must therefore be **backend** and **analyzer** so
-# the existing frostal027/lsa-frontend image works without a rebuild.
+# Best practice is now to deploy via Kustomize:
 #
-# Ports (repo defaults — change targetPort/containerPort if your images differ):
-#   - frontend container: 80 (nginx)
-#   - backend container:  3000 (Express; Dockerfile EXPOSE 3000)
-#   - analyzer container: 8000 (FastAPI / uvicorn)
+#   kubectl apply -k k8s/nexus-trace
 #
-# If you truly need different Service names, rebuild the frontend with updated
-# nginx.conf (or mount a ConfigMap over /etc/nginx/conf.d/default.conf).
-# =============================================================================
+# The same resources live as split manifests under `k8s/nexus-trace/`.
+#
 
 ---
 apiVersion: v1
@@ -263,21 +247,28 @@ spec:
           env:
             - name: MODEL_TIMEOUT_S
               value: "180"
-            # Model endpoints. If these Services are not deployed or are unreachable,
-            # the analyzer falls back to stub behavior for that stage.
+            # Sanity-check mode: route ALL 4 agents through a single small Ollama model.
+            # This proves the analyzer is making real HTTP calls and the end-to-end
+            # /query -> pipeline -> response formatting works in-cluster.
             #
-            # The four Docker Hub model images listed in the repo conversation expose
-            # POST /v1/rca/generate (not /v1/chat/completions). Our analyzer's
-            # fastapi/services/model_client.py automatically falls back to that endpoint
-            # when /v1/chat/completions is missing (404/405).
+            # NOTE: `ollama-2b` is deployed in the `default` namespace below, so we use
+            # cross-namespace DNS.
             - name: RCA_QWEN_URL
-              value: "http://rca-qwen:8000"
+              value: "http://ollama-2b.default.svc.cluster.local:11434"
+            - name: RCA_QWEN_MODEL
+              value: "gemma:2b"
             - name: RCA_DEEPSEEK_URL
-              value: "http://rca-deepseek:8000"
+              value: "http://ollama-2b.default.svc.cluster.local:11434"
+            - name: RCA_DEEPSEEK_MODEL
+              value: "gemma:2b"
             - name: EXECUTOR_URL
-              value: "http://executor-mistral:8000"
+              value: "http://ollama-2b.default.svc.cluster.local:11434"
+            - name: EXECUTOR_MODEL
+              value: "gemma:2b"
             - name: VALIDATOR_URL
-              value: "http://validator-llama:8000"
+              value: "http://ollama-2b.default.svc.cluster.local:11434"
+            - name: VALIDATOR_MODEL
+              value: "gemma:2b"
           readinessProbe:
             httpGet:
               path: /health
@@ -608,6 +599,11 @@ spec:
         app.kubernetes.io/name: nexus-trace-validator-llama
         app.kubernetes.io/component: model
     spec:
+      tolerations:
+        - key: "gpu-node"
+          operator: "Equal"
+          value: "true"
+          effect: "NoSchedule"
       containers:
         - name: validator-llama
           image: mrunalikatta/validator-llama-3b:latest
@@ -736,3 +732,57 @@ spec:
       port: 80
       targetPort: http
   # Minikube: run `minikube tunnel` in another terminal so LoadBalancer gets an IP.
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama-2b
+  namespace: nexus-trace
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ollama-2b
+  template:
+    metadata:
+      labels:
+        app: ollama-2b
+    spec:
+      containers:
+        - name: ollama
+          image: ollama/ollama:latest
+          ports:
+            - name: http
+              containerPort: 11434
+          resources:
+            limits:
+              cpu: "2"
+              memory: "8Gi"
+            requests:
+              cpu: "1"
+              memory: "4Gi"
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - |
+                    ollama serve &
+                    sleep 10
+                    ollama pull gemma:2b
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-2b
+  namespace: nexus-trace
+spec:
+  selector:
+    app: ollama-2b
+  ports:
+    - name: http
+      port: 11434
+      targetPort: 11434
+  type: ClusterIP

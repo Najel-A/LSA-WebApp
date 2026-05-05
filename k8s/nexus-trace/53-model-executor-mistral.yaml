@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nexus-trace-executor-mistral
+  namespace: nexus-trace
+  labels:
+    app.kubernetes.io/name: nexus-trace-executor-mistral
+    app.kubernetes.io/component: model
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nexus-trace-executor-mistral
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nexus-trace-executor-mistral
+        app.kubernetes.io/component: model
+    spec:
+      containers:
+        - name: executor-mistral
+          image: mrunalikatta/executor-mistral-24b:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: MODEL_PROFILE
+              value: "mistral"
+            - name: ADAPTER_PATH
+              value: "/adapters"
+            - name: PORT
+              value: "8000"
+          volumeMounts:
+            - name: adapters
+              mountPath: /adapters
+              subPath: executor-mistral
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "1"
+              memory: "4Gi"
+            limits:
+              cpu: "8"
+              memory: "48Gi"
+      volumes:
+        - name: adapters
+          persistentVolumeClaim:
+            claimName: nexus-trace-model-adapters
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: executor-mistral
+  namespace: nexus-trace
+  labels:
+    app.kubernetes.io/name: nexus-trace-executor-mistral
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: nexus-trace-executor-mistral
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+

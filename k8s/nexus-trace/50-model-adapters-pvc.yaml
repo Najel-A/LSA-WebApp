@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nexus-trace-model-adapters
+  namespace: nexus-trace
+  labels:
+    app.kubernetes.io/name: nexus-trace-model-adapters
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+

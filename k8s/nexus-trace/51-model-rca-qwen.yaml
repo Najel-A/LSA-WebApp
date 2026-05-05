@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nexus-trace-rca-qwen
+  namespace: nexus-trace
+  labels:
+    app.kubernetes.io/name: nexus-trace-rca-qwen
+    app.kubernetes.io/component: model
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nexus-trace-rca-qwen
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nexus-trace-rca-qwen
+        app.kubernetes.io/component: model
+    spec:
+      containers:
+        - name: rca-qwen
+          image: deveshs18/rca-lora-qwen:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: MODEL_PROFILE
+              value: "qwen"
+            - name: ADAPTER_PATH
+              value: "/adapters"
+            - name: PORT
+              value: "8000"
+          volumeMounts:
+            - name: adapters
+              mountPath: /adapters
+              subPath: qwen
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "2Gi"
+            limits:
+              cpu: "4"
+              memory: "16Gi"
+      volumes:
+        - name: adapters
+          persistentVolumeClaim:
+            claimName: nexus-trace-model-adapters
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rca-qwen
+  namespace: nexus-trace
+  labels:
+    app.kubernetes.io/name: nexus-trace-rca-qwen
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: nexus-trace-rca-qwen
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+
