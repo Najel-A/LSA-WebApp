@@ -110,12 +110,40 @@ async def call_model(
         body["response_format"] = response_format
 
     async with httpx.AsyncClient(timeout=endpoint.timeout_s) as client:
-        resp = await client.post(
-            f"{endpoint.url}/v1/chat/completions",
-            json=body,
-        )
-        resp.raise_for_status()
-        data = resp.json()
+        # Preferred path: OpenAI-compatible chat completions.
+        #
+        # Some teams ship "LoRA inference" images that expose only a custom
+        # endpoint: POST /v1/rca/generate {evidence_text,...} -> {text: ...}
+        # (see comments at the top of this file). For those, we fall back
+        # automatically when chat-completions is missing.
+        try:
+            resp = await client.post(
+                f"{endpoint.url}/v1/chat/completions",
+                json=body,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        except httpx.HTTPStatusError as e:
+            status = e.response.status_code
+            if status not in (404, 405):
+                raise
+            # Fallback: mk/deveshs18 LoRA-style endpoint.
+            resp = await client.post(
+                f"{endpoint.url}/v1/rca/generate",
+                json={
+                    # These servers "compact" evidence into a prompt internally.
+                    # We pass our fully-rendered evidence blob as evidence_text.
+                    "evidence_text": prompt,
+                    "max_new_tokens": max(1, min(int(max_tokens), 2048)),
+                    "temperature": float(temperature),
+                    "do_sample": bool(temperature and temperature > 0),
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            text = (data.get("text") or "").strip()
+            text = _THINK_BLOCK_RE.sub("", text or "")
+            return text.strip()
     # Standard OpenAI chat shape; tolerate the legacy completions shape too.
     choices = data.get("choices") or []
     if not choices:

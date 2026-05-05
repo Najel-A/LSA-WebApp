@@ -106,6 +106,77 @@ services:
       retries: 6
       start_period: 30s
 
+  # Optional: run the LoRA model servers as containers.
+  #
+  # These images expose POST /v1/rca/generate (not /v1/chat/completions) and
+  # require a mounted LoRA adapter directory containing adapter_config.json.
+  # Our FastAPI `model_client.py` auto-falls-back to /v1/rca/generate when
+  # /v1/chat/completions is missing.
+  #
+  # Enable with:
+  #   docker compose --profile models up -d
+  #
+  # Then set in your .env (see compose.env.example):
+  #   RCA_QWEN_URL=http://rca-qwen:8000
+  #   RCA_DEEPSEEK_URL=http://rca-deepseek:8000
+  #   EXECUTOR_URL=http://executor-mistral:8000
+  #   VALIDATOR_URL=http://validator-llama:8000
+  rca-qwen:
+    image: deveshs18/rca-lora-qwen:latest
+    platform: linux/amd64
+    profiles: ["models"]
+    restart: unless-stopped
+    environment:
+      MODEL_PROFILE: qwen
+      ADAPTER_PATH: /adapters
+      PORT: "8000"
+    volumes:
+      - ./fastapi/adapters/qwen:/adapters:ro
+    networks:
+      - app
+
+  rca-deepseek:
+    image: deveshs18/rca-lora-deepseek:latest
+    platform: linux/amd64
+    profiles: ["models"]
+    restart: unless-stopped
+    environment:
+      MODEL_PROFILE: deepseek
+      ADAPTER_PATH: /adapters
+      PORT: "8000"
+    volumes:
+      - ./fastapi/adapters/deepseek:/adapters:ro
+    networks:
+      - app
+
+  executor-mistral:
+    image: mrunalikatta/executor-mistral-24b:latest
+    platform: linux/amd64
+    profiles: ["models"]
+    restart: unless-stopped
+    environment:
+      MODEL_PROFILE: mistral
+      ADAPTER_PATH: /adapters
+      PORT: "8000"
+    volumes:
+      - ./fastapi/adapters/executor-mistral:/adapters:ro
+    networks:
+      - app
+
+  validator-llama:
+    image: mrunalikatta/validator-llama-3b:latest
+    platform: linux/amd64
+    profiles: ["models"]
+    restart: unless-stopped
+    environment:
+      MODEL_PROFILE: llama
+      ADAPTER_PATH: /adapters
+      PORT: "8000"
+    volumes:
+      - ./fastapi/adapters/validator-llama:/adapters:ro
+    networks:
+      - app
+
   frontend:
     build:
       context: ./frontend

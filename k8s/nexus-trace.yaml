@@ -1,0 +1,738 @@
+# =============================================================================
+# NexusTrace — Kubernetes baseline (multi-document)
+# Apply:  kubectl apply -f k8s/nexus-trace.yaml
+# Delete: kubectl delete -f k8s/nexus-trace.yaml
+#
+# Architecture (browser → services):
+#   Internet → LoadBalancer:80 (nginx + React static)
+#              → same-origin /api/*, /auth/*, /health → ClusterIP backend:3000
+#              → same-origin /query → ClusterIP analyzer:8000
+#   backend → MongoDB ClusterIP mongo:27017
+#
+# IMPORTANT — upstream DNS names vs Docker Hub image names
+# Your frontend image bakes nginx upstreams as hostnames **backend** and
+# **analyzer** (see frontend/nginx.conf), NOT "nexus-trace-backend". ClusterIP
+# Service.metadata.name must therefore be **backend** and **analyzer** so
+# the existing frostal027/lsa-frontend image works without a rebuild.
+#
+# Ports (repo defaults — change targetPort/containerPort if your images differ):
+#   - frontend container: 80 (nginx)
+#   - backend container:  3000 (Express; Dockerfile EXPOSE 3000)
+#   - analyzer container: 8000 (FastAPI / uvicorn)
+#
+# If you truly need different Service names, rebuild the frontend with updated
+# nginx.conf (or mount a ConfigMap over /etc/nginx/conf.d/default.conf).
+# =============================================================================
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: nexus-trace
+  labels:
+    app.kubernetes.io/name: nexus-trace
+
+---
+# -----------------------------------------------------------------------------
+# Secrets — replace placeholder values before production use.
+# kubectl create secret generic ... --dry-run=client -o yaml | kubectl apply -f -
+# -----------------------------------------------------------------------------
+apiVersion: v1
+kind: Secret
+metadata:
+  name: nexus-trace-app-secrets
+  namespace: nexus-trace
+  labels:
+    app.kubernetes.io/name: nexus-trace
+type: Opaque
+stringData:
+  # Strong random value in real deployments (e.g. openssl rand -base64 32)
+  jwt-secret: "CHANGE_ME_JWT_SECRET"
+  # Browser origin for CORS — MUST match the public URL users use to open the SPA
+  # (e.g. https://app.example.com or http://<LoadBalancer-IP> for a quick test).
+  cors-origin: "http://REPLACE_WITH_PUBLIC_FRONTEND_URL"
+
+---
+# -----------------------------------------------------------------------------
+# MongoDB — minimal in-cluster database so the Node API can start.
+# For production, prefer Atlas / managed Mongo and delete this section; set
+# MONGODB_URI in the backend Deployment to your external URI instead.
+# -----------------------------------------------------------------------------
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nexus-trace-mongo-data
+  namespace: nexus-trace
+  labels:
+    app.kubernetes.io/name: nexus-trace-mongo
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  # storageClassName: standard   # uncomment and set for your cluster
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nexus-trace-mongo
+  namespace: nexus-trace
+  labels:
+    app.kubernetes.io/name: nexus-trace-mongo
+    app.kubernetes.io/component: database
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nexus-trace-mongo
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nexus-trace-mongo
+        app.kubernetes.io/component: database
+    spec:
+      containers:
+        - name: mongo
+          image: mongo:6
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: mongodb
+              containerPort: 27017
+          volumeMounts:
+            - name: data
+              mountPath: /data/db
+          readinessProbe:
+            tcpSocket:
+              port: 27017
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: 27017
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "1Gi"
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: nexus-trace-mongo-data
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongo
+  namespace: nexus-trace
+  labels:
+    app.kubernetes.io/name: nexus-trace-mongo
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: nexus-trace-mongo
+  ports:
+    - name: mongodb
+      port: 27017
+      targetPort: mongodb
+
+---
+# -----------------------------------------------------------------------------
+# Backend (Express API) — ClusterIP Service MUST be named **backend** for nginx.
+# -----------------------------------------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nexus-trace-backend
+  namespace: nexus-trace
+  labels:
+    app.kubernetes.io/name: nexus-trace-backend
+    app.kubernetes.io/component: api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nexus-trace-backend
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nexus-trace-backend
+        app.kubernetes.io/component: api
+    spec:
+      containers:
+        - name: backend
+          image: frostal027/lsa-backend:1.0.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3000
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: PORT
+              value: "3000"
+            - name: HOST
+              value: "0.0.0.0"
+            - name: MONGODB_URI
+              value: "mongodb://mongo:27017/nexus-trace"
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-trace-app-secrets
+                  key: jwt-secret
+            - name: CORS_ORIGIN
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-trace-app-secrets
+                  key: cors-origin
+            # Optional: set ALERT_INGEST_API_KEY via secret if you use /api/alerts/ingest
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: nexus-trace
+  labels:
+    app.kubernetes.io/name: nexus-trace-backend
+    app.kubernetes.io/component: api
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: nexus-trace-backend
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+
+---
+# -----------------------------------------------------------------------------
+# Analyzer (FastAPI NexusTrace) — Service MUST be named **analyzer** for nginx.
+# -----------------------------------------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nexus-trace-analyzer
+  namespace: nexus-trace
+  labels:
+    app.kubernetes.io/name: nexus-trace-analyzer
+    app.kubernetes.io/component: inference
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nexus-trace-analyzer
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nexus-trace-analyzer
+        app.kubernetes.io/component: inference
+    spec:
+      containers:
+        - name: analyzer
+          image: frostal027/lsa-analyzer:1.0.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: MODEL_TIMEOUT_S
+              value: "180"
+            # Model endpoints. If these Services are not deployed or are unreachable,
+            # the analyzer falls back to stub behavior for that stage.
+            #
+            # The four Docker Hub model images listed in the repo conversation expose
+            # POST /v1/rca/generate (not /v1/chat/completions). Our analyzer's
+            # fastapi/services/model_client.py automatically falls back to that endpoint
+            # when /v1/chat/completions is missing (404/405).
+            - name: RCA_QWEN_URL
+              value: "http://rca-qwen:8000"
+            - name: RCA_DEEPSEEK_URL
+              value: "http://rca-deepseek:8000"
+            - name: EXECUTOR_URL
+              value: "http://executor-mistral:8000"
+            - name: VALIDATOR_URL
+              value: "http://validator-llama:8000"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: analyzer
+  namespace: nexus-trace
+  labels:
+    app.kubernetes.io/name: nexus-trace-analyzer
+    app.kubernetes.io/component: inference
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: nexus-trace-analyzer
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+
+---
+# -----------------------------------------------------------------------------
+# Optional in-cluster model servers (LoRA images).
+#
+# These Pods REQUIRE a mounted adapter directory at /adapters containing:
+# - adapter_config.json
+# - adapter weights
+# - (recommended) chat_template.jinja
+#
+# In a real cluster you likely want:
+# - a RWX volume (NFS / EFS / etc) OR
+# - one PVC per model OR
+# - a sidecar that syncs from object storage (S3/GCS) into an emptyDir.
+# -----------------------------------------------------------------------------
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nexus-trace-model-adapters
+  namespace: nexus-trace
+  labels:
+    app.kubernetes.io/name: nexus-trace-model-adapters
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+  # storageClassName: standard   # set for your cluster
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nexus-trace-rca-qwen
+  namespace: nexus-trace
+  labels:
+    app.kubernetes.io/name: nexus-trace-rca-qwen
+    app.kubernetes.io/component: model
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nexus-trace-rca-qwen
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nexus-trace-rca-qwen
+        app.kubernetes.io/component: model
+    spec:
+      containers:
+        - name: rca-qwen
+          image: deveshs18/rca-lora-qwen:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: MODEL_PROFILE
+              value: "qwen"
+            - name: ADAPTER_PATH
+              value: "/adapters"
+            - name: PORT
+              value: "8000"
+          volumeMounts:
+            - name: adapters
+              mountPath: /adapters
+              subPath: qwen
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "2Gi"
+              # nvidia.com/gpu: "1"
+            limits:
+              cpu: "4"
+              memory: "16Gi"
+              # nvidia.com/gpu: "1"
+      volumes:
+        - name: adapters
+          persistentVolumeClaim:
+            claimName: nexus-trace-model-adapters
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rca-qwen
+  namespace: nexus-trace
+  labels:
+    app.kubernetes.io/name: nexus-trace-rca-qwen
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: nexus-trace-rca-qwen
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nexus-trace-rca-deepseek
+  namespace: nexus-trace
+  labels:
+    app.kubernetes.io/name: nexus-trace-rca-deepseek
+    app.kubernetes.io/component: model
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nexus-trace-rca-deepseek
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nexus-trace-rca-deepseek
+        app.kubernetes.io/component: model
+    spec:
+      containers:
+        - name: rca-deepseek
+          image: deveshs18/rca-lora-deepseek:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: MODEL_PROFILE
+              value: "deepseek"
+            - name: ADAPTER_PATH
+              value: "/adapters"
+            - name: PORT
+              value: "8000"
+          volumeMounts:
+            - name: adapters
+              mountPath: /adapters
+              subPath: deepseek
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "2Gi"
+              # nvidia.com/gpu: "1"
+            limits:
+              cpu: "4"
+              memory: "16Gi"
+              # nvidia.com/gpu: "1"
+      volumes:
+        - name: adapters
+          persistentVolumeClaim:
+            claimName: nexus-trace-model-adapters
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rca-deepseek
+  namespace: nexus-trace
+  labels:
+    app.kubernetes.io/name: nexus-trace-rca-deepseek
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: nexus-trace-rca-deepseek
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nexus-trace-executor-mistral
+  namespace: nexus-trace
+  labels:
+    app.kubernetes.io/name: nexus-trace-executor-mistral
+    app.kubernetes.io/component: model
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nexus-trace-executor-mistral
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nexus-trace-executor-mistral
+        app.kubernetes.io/component: model
+    spec:
+      containers:
+        - name: executor-mistral
+          image: mrunalikatta/executor-mistral-24b:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: MODEL_PROFILE
+              value: "mistral"
+            - name: ADAPTER_PATH
+              value: "/adapters"
+            - name: PORT
+              value: "8000"
+          volumeMounts:
+            - name: adapters
+              mountPath: /adapters
+              subPath: executor-mistral
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "1"
+              memory: "4Gi"
+              # nvidia.com/gpu: "1"
+            limits:
+              cpu: "8"
+              memory: "48Gi"
+              # nvidia.com/gpu: "1"
+      volumes:
+        - name: adapters
+          persistentVolumeClaim:
+            claimName: nexus-trace-model-adapters
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: executor-mistral
+  namespace: nexus-trace
+  labels:
+    app.kubernetes.io/name: nexus-trace-executor-mistral
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: nexus-trace-executor-mistral
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nexus-trace-validator-llama
+  namespace: nexus-trace
+  labels:
+    app.kubernetes.io/name: nexus-trace-validator-llama
+    app.kubernetes.io/component: model
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nexus-trace-validator-llama
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nexus-trace-validator-llama
+        app.kubernetes.io/component: model
+    spec:
+      containers:
+        - name: validator-llama
+          image: mrunalikatta/validator-llama-3b:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: MODEL_PROFILE
+              value: "llama"
+            - name: ADAPTER_PATH
+              value: "/adapters"
+            - name: PORT
+              value: "8000"
+          volumeMounts:
+            - name: adapters
+              mountPath: /adapters
+              subPath: validator-llama
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "2Gi"
+              # nvidia.com/gpu: "1"
+            limits:
+              cpu: "4"
+              memory: "12Gi"
+              # nvidia.com/gpu: "1"
+      volumes:
+        - name: adapters
+          persistentVolumeClaim:
+            claimName: nexus-trace-model-adapters
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: validator-llama
+  namespace: nexus-trace
+  labels:
+    app.kubernetes.io/name: nexus-trace-validator-llama
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: nexus-trace-validator-llama
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+
+---
+# -----------------------------------------------------------------------------
+# Frontend (nginx + static React) — external LoadBalancer
+# -----------------------------------------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nexus-trace-frontend
+  namespace: nexus-trace
+  labels:
+    app.kubernetes.io/name: nexus-trace-frontend
+    app.kubernetes.io/component: web
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nexus-trace-frontend
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nexus-trace-frontend
+        app.kubernetes.io/component: web
+    spec:
+      containers:
+        - name: frontend
+          image: frostal027/lsa-frontend:1.0.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 80
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: nexus-trace
+  labels:
+    app.kubernetes.io/name: nexus-trace-frontend
+    app.kubernetes.io/component: web
+spec:
+  selector:
+    app.kubernetes.io/name: nexus-trace-frontend
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+  # Minikube: run `minikube tunnel` in another terminal so LoadBalancer gets an IP.
